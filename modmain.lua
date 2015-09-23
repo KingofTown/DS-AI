@@ -23,6 +23,12 @@ local function spawnAI(sim)
 		end
 	end
 	
+	local function OnAttacked(inst, data)
+		inst.components.combat:SetTarget(data.attacker)
+	end
+	
+	
+	
 	sim.SetSelfAI = function(inst)
 		local player = GetPlayer()
 		--player:RemoveComponent("playercontroller")
@@ -31,6 +37,7 @@ local function spawnAI(sim)
 		player:AddTag("ArtificalWilson")
 		local brain = GLOBAL.require "brains/artificalwilson"
 		player:SetBrain(brain)
+		player:ListenForEvent("attacked", OnAttacked)
 	end
 	
 	sim.SetSelfNormal = function(inst)

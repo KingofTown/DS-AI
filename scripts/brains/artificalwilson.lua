@@ -96,9 +96,49 @@ local function GetHomePos(inst)
     return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
 end
 
+local function ListenForScienceMachine(inst,data)
+	if data and data.item.prefab == "researchlab" then
+		print("The Science Machine has been built!!!")
+		inst.components.homeseeker:SetHome(data.item)
+		--if type(data.item.prefab) == "table" then
+		--	for k,v in pairs(data.item.prefab) do
+		--		print(k,v)
+		--	end
+		--else
+		--	print(data.item.prefab)
+		--end
+	end
+end
+
 local function FindValidHome(inst)
+	print("Find Valid Home")
 	if not HasValidHome(inst) and inst.components.homeseeker then
+		print("FindValidHome2")
 		-- TODO: How to determine a good home. 
+		-- For now, it's going to be the first place we build a science machine
+		if inst.components.builder:CanBuild("researchlab") then
+			-- Find some valid ground near us
+			local pos = Vector3(inst.Transform:GetWorldPosition())
+			local machinePos = nil
+			if pos then
+			    local theta = math.random() * 2 * PI
+				local radius = 3
+				local offset = FindWalkableOffset(pos, theta, radius, 12, true)
+				if offset then
+					machinePos = pos+offset
+				end
+			end
+			
+			if machinePos ~= nil then
+				print("Found a valid place to build a science machine")
+				inst.components.builder:DoBuild("researchlab",machinePos)
+				-- This will push an event to set our home location
+			else
+				print("Could not find a place for a science machine")
+			end
+			
+		end
+		
 	end
 end
 
@@ -172,7 +212,12 @@ local function FindTreeOrRockAction(inst, action, continue)
 		return
 	end
 	
-	-- TODO, this will target trees, mushtrees, etc
+	-- This is super hacky too
+	if action == ACTIONS.MINE and inst.components.inventory:Has("goldnugget",10) then
+		return
+	end
+	
+	-- TODO, this will find all mineable structures (ice, rocks, sinkhole)
 	local target = FindEntity(inst, CurrentSearchDistance, function(item) return item.components.workable and item.components.workable.action == action end)
 	
 	if target then
@@ -285,9 +330,7 @@ end
 -----------------------------------------------------------------------
 -- Eating and stuff
 local function HaveASnack(inst)
-
 	--print("HaveASnack")
-
 	if inst.components.hunger:GetPercent() > .5 then
 		return
 	end
@@ -396,6 +439,7 @@ function ArtificalBrain:OnStart()
 	
 	self.inst:ListenForEvent("actionDone",function(inst,data) local state = nil if data then state = data.state end ActionDone(inst,state) end)
 	self.inst:ListenForEvent("finishedwork", function(inst, data) OnFinishedWork(inst,data.target, data.action) end)
+	self.inst:ListenForEvent("buildstructure", function(inst, data) ListenForScienceMachine(inst,data) end)  
 	
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
@@ -416,6 +460,10 @@ function ArtificalBrain:OnStart()
 			
 			-- Make sure we eat
 			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
+			
+			-- Find a good place to call home
+			IfNode( function() return not HasValidHome(self.inst) end, "no home",
+				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
 			-- Harvest stuff
 			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goPickup",

@@ -10,7 +10,7 @@ require "behaviours/chattynode"
 require "behaviours/leash"
 
 local MIN_SEARCH_DISTANCE = 15
-local MAX_SEARCH_DISTANCE = 60
+local MAX_SEARCH_DISTANCE = 100
 local SEARCH_SIZE_STEP = 5
 
 -- The order in which we prioritize things to build
@@ -181,6 +181,7 @@ local function BuildThis(player, thingToBuild, pos)
 	
 end
 
+-- Returns a point somewhere near thing at a distance dist
 local function GetPointNearThing(thing, dist)
 	local pos = Vector3(thing.Transform:GetWorldPosition())
 
@@ -203,14 +204,25 @@ end)
 -- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
 -- is scheduled and this callback will be triggered on both success and failure to denote 
 -- we are done with that action
+
+
 local function ActionDone(self, state)
 	--print("Action Done")
+	if self.currentAction ~= nil then 
+		self.currentAction:Cancel() 
+		self.currentAction=nil  
+		self:RemoveTag("DoingLongAction")
+	end
 	self:RemoveTag("DoingAction")
 end
 
 -- Adds our custom success and fail callback to a buffered action
+-- actionNumber is for a watchdog node
+
+local MAX_TIME_FOR_ACTION_SECONDS = 8
 local function SetupBufferedAction(inst, action)
 	inst:AddTag("DoingAction")
+	inst.currentAction = inst:DoTaskInTime(MAX_TIME_FOR_ACTION_SECONDS,function() print("watchdog trigger on action") ActionDone(inst, "failed") end)
 	action:AddSuccessAction(function() inst:PushEvent("actionDone",{state="success"}) end)
 	action:AddFailAction(function() inst:PushEvent("actionDone",{state="failed"}) end)
 	return action	
@@ -237,17 +249,17 @@ local function GetHomePos(inst)
     return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
 end
 
+local function AtHome(inst)
+	-- Am I close enough to my home position?
+	if not HasValidHome(inst) return false end
+	local dist = inst:GetDistanceSqToPoint(GetHomePos(inst))
+	return HasValidHome(inst) and dist < 10
+end
+
+-- Should keep track of what we build so we don't have to keep checking. 
 local function ListenForScienceMachine(inst,data)
 	if data and data.item.prefab == "researchlab" then
-		print("The Science Machine has been built!!!")
 		inst.components.homeseeker:SetHome(data.item)
-		--if type(data.item.prefab) == "table" then
-		--	for k,v in pairs(data.item.prefab) do
-		--		print(k,v)
-		--	end
-		--else
-		--	print(data.item.prefab)
-		--end
 	end
 end
 
@@ -264,10 +276,14 @@ local function FindValidHome(inst)
 				print("Found a valid place to build a science machine")
 				inst.components.builder:DoBuild("researchlab",machinePos)
 				-- This will push an event to set our home location
+				-- If we can, make a firepit too
+				if inst.components.builder:CanBuild("firepit") then
+					local pitPos = GetPointNearThing(inst,4)
+					inst.components.builder:DoBuild("firepit",pitPos)
+				end
 			else
 				print("Could not find a place for a science machine")
 			end
-			
 		end
 		
 	end
@@ -614,7 +630,9 @@ local function MakeLightSource(inst)
 		end
 		
 		-- Find some fuel in our inventory to add
-		local allFuelInInv = inst.components.inventory:FindItems(function(item) return item.components.fuel and not item.components.armor end)
+		local allFuelInInv = inst.components.inventory:FindItems(function(item) return item.components.fuel and 
+																				not item.components.armor and
+																				firepit.components.fueled:CanAcceptFuelItem(item) end)
 		
 		-- Add some fuel to the fire.
 		
@@ -701,7 +719,7 @@ end
 local function MidwayThroughDusk()
 	local clock = GetClock()
 	local startTime = clock:GetDuskTime()
-	return clock:IsDusk() and (clock:GetTimeLeftInEra() < startTime/2)
+	return clock:IsDusk() and (clock:GetTimeLeftInEra() < startTime/4)
 end
 
 function ArtificalBrain:OnStart()
@@ -722,7 +740,7 @@ function ArtificalBrain:OnStart()
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
 				ChaseAndAttack(self.inst,20)),
 			-- This is if we don't want to fight what is attaking us. We'll run from it instead.
-			RunAway(self.inst,"TryingToKillUs",10,20),
+			RunAway(self.inst,"TryingToKillUs",3,8),
 			
 			-- If we started doing a long action, keep doing that action
 			WhileNode(function() return self.inst:HasTag("DoingLongAction") end, "continueLongAction",
@@ -765,8 +783,8 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
 				ChaseAndAttack(self.inst,20)),
-			-- This is if we don't want to fight what is attaking us. We'll run from it instead.
-			RunAway(self.inst,"TryingToKillUs",10,20),
+			-- This is if we don't want to fight what is attacking us. We'll run from it instead.
+			RunAway(self.inst,"TryingToKillUs",3,8),
 			
 			-- If we started doing a long action, keep doing that action
 			WhileNode(function() return self.inst:HasTag("DoingLongAction") end, "continueLongAction",
@@ -805,6 +823,8 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating"),
 				IfNode( function() return HasValidHome(self.inst) end, "try to go home",
 					DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
+				--IfNode( function() return AtHome(self.inst) end, "am home",
+				--	DoAction(self.inst, function() return BuildStuffAtHome(self.inst) end, "build stuff", true)),
 				
 				-- If we don't have a home, make a camp somewhere
 				--IfNode( function() return not HasValidHome(self.inst) end, "no home to go",

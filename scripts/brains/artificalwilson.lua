@@ -10,7 +10,7 @@ require "behaviours/chattynode"
 require "behaviours/leash"
 
 local MIN_SEARCH_DISTANCE = 15
-local MAX_SEARCH_DISTANCE = 40
+local MAX_SEARCH_DISTANCE = 60
 local SEARCH_SIZE_STEP = 5
 
 -- The order in which we prioritize things to build
@@ -77,6 +77,24 @@ local ArtificalBrain = Class(Brain, function(self, inst)
     Brain._ctor(self,inst)
 end)
 
+
+-- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
+-- is scheduled and this callback will be triggered on both success and failure to denote 
+-- we are done with that action
+local function ActionDone(self, state)
+	--print("Action Done")
+	self:RemoveTag("DoingAction")
+end
+
+-- Adds our custom success and fail callback to a buffered action
+local function SetupBufferedAction(inst, action)
+	inst:AddTag("DoingAction")
+	action:AddSuccessAction(function() inst:PushEvent("actionDone",{state="success"}) end)
+	action:AddFailAction(function() inst:PushEvent("actionDone",{state="failed"}) end)
+	return action	
+end
+
+
 -- Go home stuff
 -----------------------------------------------------------------------
 local function HasValidHome(inst)
@@ -86,9 +104,10 @@ local function HasValidHome(inst)
 end
 
 local function GoHomeAction(inst)
+	print("GoHomeAction")
     if  HasValidHome(inst) and
         not inst.components.combat.target then
-            return BufferedAction(inst, inst.components.homeseeker.home, ACTIONS.GOHOME)
+			inst.components.homeseeker:GoHome(true)
     end
 end
 
@@ -111,9 +130,9 @@ local function ListenForScienceMachine(inst,data)
 end
 
 local function FindValidHome(inst)
-	print("Find Valid Home")
+
 	if not HasValidHome(inst) and inst.components.homeseeker then
-		print("FindValidHome2")
+
 		-- TODO: How to determine a good home. 
 		-- For now, it's going to be the first place we build a science machine
 		if inst.components.builder:CanBuild("researchlab") then
@@ -146,6 +165,7 @@ end
 -- Gather stuff
 local CurrentSearchDistance = MIN_SEARCH_DISTANCE
 local function IncreaseSearchDistance()
+	print("IncreaseSearchDistance")
 	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
 end
 
@@ -160,20 +180,6 @@ local function OnFinishedWork(inst,target,action)
 	inst:RemoveTag("DoingLongAction")
 end
 
--- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
--- is scheduled and this callback will be triggered on both success and failure to denote 
--- we are done with that action
-local function ActionDone(self, state)
-	self:RemoveTag("DoingAction")
-end
-
--- Adds our custom success and fail callback to a buffered action
-local function SetupBufferedAction(inst, action)
-	inst:AddTag("DoingAction")
-	action:AddSuccessAction(function() inst:PushEvent("actionDone",{state="success"}) end)
-	action:AddFailAction(function() inst:PushEvent("actionDone",{state="failed"}) end)
-	return action	
-end
 
 -- Harvest Actions
 --local CurrentActionSearchDistance = MIN_SEARCH_DISTANCE
@@ -431,7 +437,150 @@ local function FightBack(inst)
 	end
 	
 	inst:AddTag("FightBack")
+end
+----------------------------- End Combat ---------------------------------------
+
+
+local function IsNearLightSource(inst)
+	local source = GetClosestInstWithTag("lightsource", inst, 10)
+	if source then
 	
+		local dsq = inst:GetDistanceSqToInst(source)
+		if dsq > 8 then
+			print("It's too far away!")
+			return false 
+		end
+		
+		-- Find the source of the light
+		local parent = source.entity:GetParent()
+		if parent then
+			if parent.components.fueled and parent.components.fueled:GetPercent() < .25 then
+				return false
+			end
+		end
+		-- Source either has no parent or doesn't need fuel. We're good.
+		return true
+	end
+
+	return false
+end
+
+local function MakeLightSource(inst)
+	-- If there is one nearby, move to it
+	print("Need to make light!")
+	local source = GetClosestInstWithTag("lightsource", inst, 30)
+	if source then
+		print("Found a light source")
+		local dsq = inst:GetDistanceSqToInst(source)
+		if dsq >= 15 then
+			local pos = Vector3(source.Transform:GetWorldPosition())
+			if pos then
+			    local theta = math.random() * 2 * PI
+				local offset = FindWalkableOffset(pos, theta, 2, 5, true)
+				if offset then
+					pos = pos+offset
+				end
+			end
+			inst.components.locomotor:GoToPoint(pos,nil,true)
+		end
+		
+		local parent = source.entity:GetParent()
+		if parent and not parent.components.fueled then	
+			return 		
+		end
+
+	end
+	
+	-- 1) Check for a firepit to add fuel
+	local firepit = GetClosestInstWithTag("campfire",inst,15)
+	if firepit then
+		-- It's got fuel...nothing to do
+		if firepit.components.fueled:GetPercent() > .25 then 
+			return
+		end
+		
+		-- Find some fuel in our inventory to add
+		local allFuelInInv = inst.components.inventory:FindItems(function(item) return item.components.fuel and not item.components.armor end)
+		
+		-- Add some fuel to the fire.
+		
+		for k,v in pairs(allFuelInInv) do
+			-- TODO: Sort this by a burn order. Probably logs first.
+			if firepit.components.fueled:GetPercent() < .25 then
+				return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, v)
+			end
+		end
+		
+		-- We don't have enough fuel. Let it burn longer before executing backup plan
+		if firepit.components.fueled:GetPercent() > .1 then return end
+	end
+	
+	-- No firepit (or no fuel). Can we make one?
+	if inst.components.builder:CanBuild("campfire") then
+		inst.components.builder:DoBuild("campfire")
+		return
+	end
+	
+	-- Can't make a campfire...torch it is (hopefully)
+	
+	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
+	if not haveTorch then
+		-- Need to make one!
+		if inst.components.builder:CanBuild("torch") then
+			inst.components.builder:DoBuild("torch")
+		end
+	end
+	-- Find it again
+	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
+	if haveTorch then
+		inst.components.inventory:Equip(haveTorch)
+		return
+	end
+	
+	-- Uhhh....we couldn't add fuel and we didn't have a torch. Find fireflys? 
+	print("Shit shit shit, it's dark!!!")
+end
+
+local function IsNearCookingSource(inst)
+	local cooker = GetClosestInstWithTag("campfire",inst,10)
+	if cooker then return true end
+end
+
+local function CookSomeFood(inst)
+	local cooker = GetClosestInstWithTag("campfire",inst,10)
+	if cooker then
+		-- Find food in inventory that we can cook.
+		local cookableFood = inst.components.inventory:FindItems(function(item) return item.components.cookable end)
+		
+		for k,v in pairs(cookableFood) do
+			-- Don't cook this unless we have a free space in inventory or this is a single item or the product is in our inventory
+			print("Checking " .. v.prefab)
+			local has, numfound = inst.components.inventory:Has(v.prefab,1)
+			print("Have " .. tostring(numfound) .. " of these to cook")
+			local theProduct = inst.components.inventory:FindItem(function(item) return (item.prefab == v.components.cookable.product) end)
+			local canFillStack = false
+			if theProduct then
+				canFillStack = not inst.components.inventory:Has(v.components.cookable.product,theProduct.components.stackable.maxsize)
+			end
+			
+			print("Can we put this in an existing stack? " .. tostring(canFillStack))
+
+			if not inst.components.inventory:IsFull() or numfound == 1 or (theProduct and canFillStack) then
+				return BufferedAction(inst,cooker,ACTIONS.COOK,v)
+			end
+		end
+	end
+end
+
+
+
+
+--------------------------------------------------------------------------------
+
+local function MidwayThroughDusk()
+	local clock = GetClock()
+	local startTime = clock:GetDuskTime()
+	return clock:IsDusk() and (clock:GetTimeLeftInEra() < startTime/2)
 end
 
 function ArtificalBrain:OnStart()
@@ -476,19 +625,44 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE) end, "mineRock", true)),
 				
 			-- Can't find anything to do...increase search distance
-			DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true),
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "nothing_to_do",
+				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
 
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
 		},.25)
 		
 
-	local dusk = WhileNode( function() return clock and clock:IsDusk() end, "IsDusk",
+		-- What to do the first half of dusk
+	local dusk = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() end, "IsDusk",
         PriorityNode{
-			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
-            ChattyNode(self.inst, STRINGS.PIG_TALK_RUNAWAY_WILSON,
-                RunAway(self.inst, "player", 3, 3)),
+			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating"),
+			
+			-- Make sure we have supplies for a fire or a torch in case we don't have a home
+			-- or we don't make it back home
+			
+			-- Don't go home until half way through dusk
+			--IfNode( function() return HasValidHome(self.inst) end, "try to go home",
+			--	DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
+	
+			
         },.5)
+		
+		-- Behave slightly different half way through dusk
+		local dusk2 = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() end, "IsDusk2",
+			PriorityNode{
+				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating"),
+				IfNode( function() return HasValidHome(self.inst) end, "try to go home",
+					DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
+				
+				-- If we don't have a home, make a camp somewhere
+				--IfNode( function() return not HasValidHome(self.inst) end, "no home to go",
+				--	DoAction(self.inst, function() return true end, "make temp camp", true)),
+					
+				-- If we're home (or at our temp camp) start cooking some food.
+				
+				
+		},.5)
 		
 	-- Things to do during the night
 	--[[
@@ -497,9 +671,15 @@ function ArtificalBrain:OnStart()
 	--]]
 	local night = WhileNode( function() return clock and clock:IsNight() end, "IsNight",
         PriorityNode{
+			-- Must be near light! 	
+			IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
+				DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
+				
+			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
+				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
+			
 			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
-            ChattyNode(self.inst, STRINGS.PIG_TALK_RUNAWAY_WILSON,
-                RunAway(self.inst, "player", 3, 3)),
+            
         },.5)
 		
 	-- Taken from wilsonbrain.lua
@@ -514,16 +694,12 @@ function ArtificalBrain:OnStart()
 	local root = 
         PriorityNode(
         {   
-			-- Artifical Wilson Mode
-			WhileNode(function() return self.inst:HasTag("ArtificalWilson") end, "AI Mode",
-				-- Day or night, we have to eat				
-			    day,
-				dusk,
-				night),
-				
-			-- Goes back to normal if this tag is removed
-			WhileNode(function() return not self.inst:HasTag("ArtificalWilson") end, "Normal Mode",
-			    nonAIMode)
+		
+			day,
+			dusk,
+			dusk2,
+			night
+
         }, .5)
     
     self.bt = BT(self.inst, root)

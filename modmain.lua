@@ -5,6 +5,16 @@ local GetPlayer = GLOBAL.GetPlayer
 
 AddBrainPostInit("artificalwilson",ArtificalWilson)
 
+local function setSelfAI()
+	local player = GetPlayer()
+	--player:RemoveComponent("playercontroller")
+	player:AddComponent("follower")
+	player:AddComponent("homeseeker")
+	player:AddTag("ArtificalWilson")
+	local brain = GLOBAL.require "brains/artificalwilson"
+	player:SetBrain(brain)
+	player:ListenForEvent("attacked", OnAttacked)
+end
 
 local function spawnAI(sim)
 
@@ -29,16 +39,8 @@ local function spawnAI(sim)
 	
 	
 	
-	sim.SetSelfAI = function(inst)
-		local player = GetPlayer()
-		--player:RemoveComponent("playercontroller")
-		player:AddComponent("follower")
-		player:AddComponent("homeseeker")
-		player:AddTag("ArtificalWilson")
-		local brain = GLOBAL.require "brains/artificalwilson"
-		player:SetBrain(brain)
-		player:ListenForEvent("attacked", OnAttacked)
-	end
+	sim.SetSelfAI = setSelfAI
+
 	
 	sim.SetSelfNormal = function(inst)
 		local player = GetPlayer()
@@ -47,4 +49,12 @@ local function spawnAI(sim)
 end
 
 AddComponentPostInit("clock",spawnAI)
+
+GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_A, function()
+	local TheInput = GLOBAL.TheInput
+	if not GLOBAL.IsPaused() and TheInput:IsKeyDown(GLOBAL.KEY_CTRL) then
+		setSelfAI()
+	end
+
+end)
 

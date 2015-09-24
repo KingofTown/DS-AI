@@ -71,6 +71,19 @@ local function addRecipeToGatherList(thingToBuild, addFullRecipe)
 		end
     end
 end
+
+local function GetPointNearThing(thing, dist)
+	local pos = Vector3(thing.Transform:GetWorldPosition())
+
+	if pos then
+		local theta = math.random() * 2 * PI
+		local radius = dist
+		local offset = FindWalkableOffset(pos, theta, radius, 12, true)
+		if offset then
+			return pos+offset
+		end
+	end
+end
 ------------------------------------------------------------------------------------------------
 
 local ArtificalBrain = Class(Brain, function(self, inst)
@@ -137,17 +150,7 @@ local function FindValidHome(inst)
 		-- For now, it's going to be the first place we build a science machine
 		if inst.components.builder:CanBuild("researchlab") then
 			-- Find some valid ground near us
-			local pos = Vector3(inst.Transform:GetWorldPosition())
-			local machinePos = nil
-			if pos then
-			    local theta = math.random() * 2 * PI
-				local radius = 3
-				local offset = FindWalkableOffset(pos, theta, radius, 12, true)
-				if offset then
-					machinePos = pos+offset
-				end
-			end
-			
+			local machinePos = GetPointNearThing(inst,3)		
 			if machinePos ~= nil then
 				print("Found a valid place to build a science machine")
 				inst.components.builder:DoBuild("researchlab",machinePos)
@@ -311,26 +314,30 @@ local function FindResourceOnGround(inst)
 	end
 	
 	
-	-- TODO: Check to see if it would stack
-	if not inst.components.inventory:IsFull() then
-		-- TODO: Only have up to 1 stack of the thing (modify the findentity fcn)
-		local target = FindEntity(inst, CurrentSearchDistance, function(item) 
-							if item.components.inventoryitem and 
-								item.components.inventoryitem.canbepickedup and 
-								not item.components.inventoryitem:IsHeld() and
-								item:IsOnValidGround() and
-								-- Ignore things we have a full stack of
-								not inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 2) and
-								not item:HasTag("prey") and
-								not item:HasTag("bird") then
-									return true
-							end
-						end)
-		if target then
-			ResetSearchDistance()
-			return SetupBufferedAction(inst,BufferedAction(inst, target, ACTIONS.PICKUP))
-		end
+
+	-- TODO: Only have up to 1 stack of the thing (modify the findentity fcn)
+	local target = FindEntity(inst, CurrentSearchDistance, function(item)
+						-- Do we have a slot for this already
+						local haveItem = inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
+			
+						if item.components.inventoryitem and 
+							item.components.inventoryitem.canbepickedup and 
+							not item.components.inventoryitem:IsHeld() and
+							item:IsOnValidGround() and
+							-- Ignore things we have a full stack of
+							not inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 2) and
+							-- Ignore this unless it fits in a stack
+							not (inst.components.inventory:IsFull() and haveItem == nil) and
+							not item:HasTag("prey") and
+							not item:HasTag("bird") then
+								return true
+						end
+					end)
+	if target then
+		ResetSearchDistance()
+		return SetupBufferedAction(inst,BufferedAction(inst, target, ACTIONS.PICKUP))
 	end
+
 end
 
 -----------------------------------------------------------------------
@@ -473,15 +480,10 @@ local function MakeLightSource(inst)
 		print("Found a light source")
 		local dsq = inst:GetDistanceSqToInst(source)
 		if dsq >= 15 then
-			local pos = Vector3(source.Transform:GetWorldPosition())
+			local pos = GetPointNearThing(source,2)
 			if pos then
-			    local theta = math.random() * 2 * PI
-				local offset = FindWalkableOffset(pos, theta, 2, 5, true)
-				if offset then
-					pos = pos+offset
-				end
+				inst.components.locomotor:GoToPoint(pos,nil,true)
 			end
-			inst.components.locomotor:GoToPoint(pos,nil,true)
 		end
 		
 		local parent = source.entity:GetParent()
@@ -517,7 +519,14 @@ local function MakeLightSource(inst)
 	
 	-- No firepit (or no fuel). Can we make one?
 	if inst.components.builder:CanBuild("campfire") then
-		inst.components.builder:DoBuild("campfire")
+		-- Don't build one too close to burnable things. 
+		local burnable = GetClosestInstWithTag("burnable",inst,3)
+		local pos = nil
+		if burnable then
+			print("Don't want to build campfire too close")
+			pos = GetPointNearThing(burnable,3)
+		end
+		inst.components.builder:DoBuild("campfire",pos)
 		return
 	end
 	
@@ -593,7 +602,7 @@ function ArtificalBrain:OnStart()
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
 		PriorityNode{
-			RunAway(self.inst, "hostile", 15, 30),
+			--RunAway(self.inst, "hostile", 15, 30),
 			-- We've been attacked. Equip a weapon and fight back.
 			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
 				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
@@ -636,16 +645,43 @@ function ArtificalBrain:OnStart()
 		-- What to do the first half of dusk
 	local dusk = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() end, "IsDusk",
         PriorityNode{
-			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating"),
+			--RunAway(self.inst, "hostile", 15, 30),
+			-- We've been attacked. Equip a weapon and fight back.
+			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
+				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
+			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
+				ChaseAndAttack(self.inst,20)),
+			-- This is if we don't want to fight what is attaking us. We'll run from it instead.
+			RunAway(self.inst,"TryingToKillUs",10,20),
 			
-			-- Make sure we have supplies for a fire or a torch in case we don't have a home
-			-- or we don't make it back home
+			-- If we started doing a long action, keep doing that action
+			WhileNode(function() return self.inst:HasTag("DoingLongAction") end, "continueLongAction",
+				LoopNode{
+					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true)}),
 			
-			-- Don't go home until half way through dusk
-			--IfNode( function() return HasValidHome(self.inst) end, "try to go home",
-			--	DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
-	
+			-- Make sure we eat
+			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
 			
+			-- Find a good place to call home
+			IfNode( function() return not HasValidHome(self.inst) end, "no home",
+				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
+
+			-- Harvest stuff
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goPickup",
+				DoAction(self.inst, function() return FindResourceOnGround(self.inst) end, "pickup_ground", true )),			
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goHarvest",
+				DoAction(self.inst, function() return FindResourceToHarvest(self.inst) end, "harvest", true )),
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goChop",
+				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.CHOP) end, "chopTree", true)),
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goMine",
+				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE) end, "mineRock", true)),
+				
+			-- Can't find anything to do...increase search distance
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "nothing_to_do",
+				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+
+			-- No plan...just walking around
+			--Wander(self.inst, nil, 20),
         },.5)
 		
 		-- Behave slightly different half way through dusk

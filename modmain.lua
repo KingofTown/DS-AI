@@ -13,7 +13,7 @@ local function setSelfAI()
 	player:AddTag("ArtificalWilson")
 	local brain = GLOBAL.require "brains/artificalwilson"
 	player:SetBrain(brain)
-	player:ListenForEvent("attacked", OnAttacked)
+	--player:ListenForEvent("attacked", OnAttacked)
 end
 
 local function spawnAI(sim)

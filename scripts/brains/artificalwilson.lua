@@ -72,6 +72,115 @@ local function addRecipeToGatherList(thingToBuild, addFullRecipe)
     end
 end
 
+-- Makes sure we have the right tech level.
+-- If we don't have a resource, checks to see if we can craft it/them
+-- If we can craft all necessary resources to build something, returns true
+-- else, returns false
+-- Do not set recursive variable, it will be set on recursive calls
+local itemsNeeded = {}
+local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
+
+	-- Reset the table
+	if recursive == nil then 
+		for k,v in pairs(itemsNeeded) do itemsNeeded[k]=nil end
+		recursive = 0
+	end
+	
+	if numToBuild == nil then numToBuild = 1 end
+	
+	local recipe = GetRecipe(thingToBuild)
+	
+	-- Not a real thing so we can't possibly build this
+	if not recipe then 
+		print(thingToBuild .. " is not buildable :(")
+		return false 
+	end
+	
+	-- Quick check, do we know how to build this thing?
+	if not player.components.builder:KnowsRecipe(thingToBuild) then 
+		print("We don't know how to build " .. thingToBuild .. " :(")
+		return false 
+	end
+
+	-- For each ingredient, check to see if we have it. If not, see if it's creatable
+	for ik,iv in pairs(recipe.ingredients) do
+		local hasEnough = false
+		local numHas = 0
+		local totalAmountNeeded = math.ceil(iv.amount*numToBuild)
+		hasEnough, numHas = player.components.inventory:Has(iv.type,totalAmountNeeded)
+		
+		-- Subtract things already reserved from numHas
+		for i,j in pairs(itemsNeeded) do
+			if j.prefab == iv.type then
+				numHas = math.max(0,numHas - 1)
+			end
+		end
+		
+		-- If we don't have or don't have enough for this ingredient, see if we can craft some more
+		if numHas < totalAmountNeeded then
+			local needed = totalAmountNeeded - numHas
+			-- Before checking, add the current numHas to the table so the recursive
+			-- call doesn't consider them valid.
+			-- Make it level 0 as we already have this good.
+			if numHas > 0 then
+				table.insert(itemsNeeded,1,{prefab=iv.type,amount=numHas,level=0})
+			end
+			-- Recursive check...can we make this ingredient
+			local canCraft = CanIBuildThis(player,iv.type,needed,recursive+1)
+			if not canCraft then
+				print("Need " .. tostring(needed) .. " " .. iv.type .. "s but can't make them")
+				return false
+			else
+				-- We know the recipe to build this and have the goods. Add it to the list
+				-- This should get added in the recursive case
+				--table.insert(itemsNeeded,1,{prefab=iv.type, amount=needed, level=recursive, toMake=thingToBuild})
+			end
+		else
+			-- We already have enough to build this resource. Add these to the list
+			print("Adding " .. tostring(totalAmountNeeded) .. " of " .. iv.type .. " at level " .. tostring(recursive) .. " to the itemsNeeded list")
+			table.insert(itemsNeeded,1,{prefab=iv.type, amount=totalAmountNeeded, level=recursive, toMake=thingToBuild, toMakeNum=numToBuild})
+		end
+	end
+	
+	-- We made it here, we can make this thingy
+	return true
+end
+
+-- Should only be called after the above call to ensure we can build it.
+local function BuildThis(player, thingToBuild, pos)
+	local recipe = GetRecipe(thingToBuild)
+	-- not a real thing
+	if not recipe then return end
+	
+	for k,v in pairs(itemsNeeded) do print(k,v) end
+	
+	-- TODO: Make sure we have the inventory space! 
+	for k,v in pairs(itemsNeeded) do
+		-- Just go down the list. If level > 0, we need to build it
+		if v.level > 0 and v.toMake then
+			-- We should be able to build this...
+			print("Trying to build " .. v.toMake)
+			while v.toMakeNum > 0 do 
+				if player.components.builder:CanBuild(v.toMake) then
+					player.components.builder:DoBuild(v.toMake)
+					v.toMakeNum = v.toMakeNum - 1
+				else
+					print("Uhh...we can't make " .. v.toMake .. "!!!")
+					return
+				end
+			end
+		end
+	end
+	
+	-- We should have everything we need
+	if player.components.builder:CanBuild(thingToBuild) then
+		player.components.builder:DoBuild(thingToBuild,pos)
+	else
+		print("Something is messed up. We can't make " .. thingToBuild .. "!!!")
+	end
+	
+end
+
 local function GetPointNearThing(thing, dist)
 	local pos = Vector3(thing.Transform:GetWorldPosition())
 
@@ -348,7 +457,7 @@ local function HaveASnack(inst)
 		return
 	end
 	
-	if inst.sg:HasStateTag("busy") then
+	if inst.sg:HasStateTag("busy") or inst:HasTag("DoingAction") then
 		return
 	end
 		
@@ -363,7 +472,7 @@ local function HaveASnack(inst)
 		-- TODO: Get the hunger value from the food and spoil rate. Prefer to eat things 
 		--       closer to spoiling first
 		if inst.components.hunger:GetPercent() <= .5 then
-			return BufferedAction(inst,v,ACTIONS.EAT)
+			return SetupBufferedAction(inst,BufferedAction(inst,v,ACTIONS.EAT))
 		end
 	end
 	
@@ -377,18 +486,21 @@ end
 -- Under these conditions, fight back. Else, run away
 local function FightBack(inst)
 	if inst.components.combat.target ~= nil then
-		--print("Fight Back called with target " .. tostring(inst.components.combat.target.prefab))
+		print("Fight Back called with target " .. tostring(inst.components.combat.target.prefab))
 		inst.components.combat.target:AddTag("TryingToKillUs")
 	else
 		inst:RemoveTag("FightBack")
 		return
 	end
-	
-	--print("FightBack")
+
+	-- This has priority. 
+	inst:RemoveTag("DoingAction")
+	inst:RemoveTag("DoingLongAction")
 	
 	if inst.sg:HasStateTag("busy") then
 		return
 	end
+	
 	-- Do we want to fight this target? 
 	-- What conditions would we fight under? Armor? Weapons? Hounds? etc
 	
@@ -417,25 +529,25 @@ local function FightBack(inst)
 		end
 	end
 	
-	-- We don't have any weapons!!!
-	if highestDamageWeapon == nil then
+	-- If we don't have at least a spears worth of damage, make a spear
+	if (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) or highestDamageWeapon == nil then
 		--print("Shit shit shit, no weapons")
 		
 		-- Can we make a spear? We'll equip it on the next visit to this function
-		if inst.components.builder and inst.components.builder:CanBuild("spear") then
-			inst.components.builder:DoBuild("spear")
+		if inst.components.builder and CanIBuildThis(inst, "spear") then
+			BuildThis(inst,"spear")
 		else
-			-- Can't even build a spear! Abort abort!
-			--addRecipeToGatherList("spear",false)
-			inst:RemoveTag("FightBack")
-			inst.components.combat:GiveUp()
+			-- Can't build a spear. If we don't have ANYTHING, run away!
+			if highestDamageWeapon == nil then
+				-- Can't even build a spear! Abort abort!
+				--addRecipeToGatherList("spear",false)
+				inst:RemoveTag("FightBack")
+				inst.components.combat:GiveUp()
+				return
+			end
+			print("Can't build a spear. I'm using whatever I've got!")
 		end
-		
-		-- Do not engage! 
-		--inst:RemoveTag("FightBack")
-		-- Also, set the target to nil? 
-		
-		return
+
 	end
 	
 	-- Equip our best weapon
@@ -597,7 +709,8 @@ function ArtificalBrain:OnStart()
 	
 	self.inst:ListenForEvent("actionDone",function(inst,data) local state = nil if data then state = data.state end ActionDone(inst,state) end)
 	self.inst:ListenForEvent("finishedwork", function(inst, data) OnFinishedWork(inst,data.target, data.action) end)
-	self.inst:ListenForEvent("buildstructure", function(inst, data) ListenForScienceMachine(inst,data) end)  
+	self.inst:ListenForEvent("buildstructure", function(inst, data) ListenForScienceMachine(inst,data) end)
+	self.inst:ListenForEvent("attacked", function(inst,data) print("I've been hit!") inst.components.combat:SetTarget(data.attacker) end)
 	
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
@@ -642,8 +755,9 @@ function ArtificalBrain:OnStart()
 		},.25)
 		
 
-		-- What to do the first half of dusk
-	local dusk = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() end, "IsDusk",
+		-- What to do the first half of dusk. 
+		-- Prioritize trees and rocks
+	local dusk = WhileNode( function() return clock and clock:IsDusk() and not MidwayThroughDusk() end, "IsDusk",
         PriorityNode{
 			--RunAway(self.inst, "hostile", 15, 30),
 			-- We've been attacked. Equip a weapon and fight back.
@@ -668,11 +782,12 @@ function ArtificalBrain:OnStart()
 
 			-- Harvest stuff
 			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goPickup",
-				DoAction(self.inst, function() return FindResourceOnGround(self.inst) end, "pickup_ground", true )),			
+				DoAction(self.inst, function() return FindResourceOnGround(self.inst) end, "pickup_ground", true )),		
+			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goChop",
+				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.CHOP) end, "chopTree", true)),	
+				
 			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goHarvest",
 				DoAction(self.inst, function() return FindResourceToHarvest(self.inst) end, "harvest", true )),
-			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goChop",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.CHOP) end, "chopTree", true)),
 			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goMine",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE) end, "mineRock", true)),
 				
@@ -730,7 +845,8 @@ function ArtificalBrain:OnStart()
 	local root = 
         PriorityNode(
         {   
-		
+			-- No matter the time, panic when on fire
+			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
 			day,
 			dusk,
 			dusk2,

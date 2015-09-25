@@ -11,13 +11,15 @@ require "behaviours/leash"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
-local SEARCH_SIZE_STEP = 5
+local SEARCH_SIZE_STEP = 10
 
 -- The order in which we prioritize things to build
 -- Stuff to be collected should follow the priority of the build order
 -- Have things to build once, build many times, etc
 -- Denote if we should always keep spare items (to build fire, etc)
 local BUILD_PRIORITY = {}
+
+
 
 -- What to gather. This is a simple FIFO. Highest priority will be first in the list.
 local GATHER_LIST = {}
@@ -70,6 +72,21 @@ local function addRecipeToGatherList(thingToBuild, addFullRecipe)
 			end
 		end
     end
+end
+---------------------------------------------------------------------------------
+-- We will never gather stuff as long as its in this list.
+-- Can add/remove from list whenever
+local IGNORE_LIST = {}
+local function OnIgnoreList(prefab)
+	return IGNORE_LIST[prefab] ~= nil
+end
+
+local function AddToIgnoreList(prefab)
+	IGNORE_LIST[prefab] = 1
+end
+
+local function RemoveFromIgnoreList(prefab)
+	IGNORE_LIST[prefab] = nil
 end
 
 -- Makes sure we have the right tech level.
@@ -228,9 +245,21 @@ local function SetupBufferedAction(inst, action)
 	return action	
 end
 
-
--- Go home stuff
 -----------------------------------------------------------------------
+-- Inventory Management
+
+-- Stuff to do when our inventory is full
+-- Eat more stuff
+-- Drop useless stuff
+-- Craft stuff?
+-- etc
+local function ManageInventory(inst)
+
+end
+
+
+-----------------------------------------------------------------------
+-- Go home stuff
 local function HasValidHome(inst)
     return inst.components.homeseeker and 
        inst.components.homeseeker.home and 
@@ -251,9 +280,9 @@ end
 
 local function AtHome(inst)
 	-- Am I close enough to my home position?
-	if not HasValidHome(inst) return false end
+	if not HasValidHome(inst) then return false end
 	local dist = inst:GetDistanceSqToPoint(GetHomePos(inst))
-	return HasValidHome(inst) and dist < 10
+	return dist < 10
 end
 
 -- Should keep track of what we build so we don't have to keep checking. 
@@ -319,7 +348,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 	end
 	
 	-- Probably entered in the LoopNode. Don't swing mid swing.
-	if inst:HasTag("DoingAction") then return end
+	--if inst:HasTag("DoingAction") then return end
 	
 	--print("FindTreeOrRock")
 	
@@ -386,7 +415,8 @@ local function FindTreeOrRockAction(inst, action, continue)
 			
 			if thingToBuild and inst.components.builder and inst.components.builder:CanBuild(thingToBuild) then
 				inst.components.builder:DoBuild(thingToBuild)
-				
+				inst:AddTag("DoingLongAction")
+				currentTreeOrRock = target
 			else
 				--addRecipeToGatherList(thingToBuild,false)
 			end
@@ -406,6 +436,9 @@ local function FindResourceToHarvest(inst)
 					if item.components.pickable and item.components.pickable:CanBePicked() and item.components.pickable.caninteractwith then
 						local theProductPrefab = item.components.pickable.product
 						if theProductPrefab == nil then
+							return false
+						end
+						if OnIgnoreList(item.components.pickable.product) then
 							return false
 						end
 						-- Check to see if we have a full stack of this item
@@ -453,6 +486,7 @@ local function FindResourceOnGround(inst)
 							not inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 2) and
 							-- Ignore this unless it fits in a stack
 							not (inst.components.inventory:IsFull() and haveItem == nil) and
+							not OnIgnoreList(item.prefab) and
 							not item:HasTag("prey") and
 							not item:HasTag("bird") then
 								return true
@@ -468,15 +502,8 @@ end
 -----------------------------------------------------------------------
 -- Eating and stuff
 local function HaveASnack(inst)
-	--print("HaveASnack")
-	if inst.components.hunger:GetPercent() > .5 then
-		return
-	end
-	
-	if inst.sg:HasStateTag("busy") or inst:HasTag("DoingAction") then
-		return
-	end
-		
+	print("HaveASnack")
+			
 	-- Check inventory for food. 
 	-- If we have none, set the priority item to find to food (TODO)
 	local allFoodInInventory = inst.components.inventory:FindItems(function(item) return inst.components.eater:CanEat(item) end)
@@ -487,9 +514,7 @@ local function HaveASnack(inst)
 		-- Sort this list in some way. Currently just eating the first thing.
 		-- TODO: Get the hunger value from the food and spoil rate. Prefer to eat things 
 		--       closer to spoiling first
-		if inst.components.hunger:GetPercent() <= .5 then
-			return SetupBufferedAction(inst,BufferedAction(inst,v,ACTIONS.EAT))
-		end
+		return SetupBufferedAction(inst,BufferedAction(inst,v,ACTIONS.EAT))
 	end
 	
 	-- TODO:
@@ -678,6 +703,16 @@ local function MakeLightSource(inst)
 	
 	-- Uhhh....we couldn't add fuel and we didn't have a torch. Find fireflys? 
 	print("Shit shit shit, it's dark!!!")
+	local lastDitchEffort = GetClosestInstWithTag("lightsource", inst, 50)
+	if lastDitchEffort then
+		local pos = GetPointNearThing(lastDitchEffort,2)
+		if pos then
+			inst.components.locomotor:GoToPoint(pos,nil,true)
+		end
+	else
+		print("So...this is how I die")
+	end
+
 end
 
 local function IsNearCookingSource(inst)
@@ -693,16 +728,12 @@ local function CookSomeFood(inst)
 		
 		for k,v in pairs(cookableFood) do
 			-- Don't cook this unless we have a free space in inventory or this is a single item or the product is in our inventory
-			print("Checking " .. v.prefab)
 			local has, numfound = inst.components.inventory:Has(v.prefab,1)
-			print("Have " .. tostring(numfound) .. " of these to cook")
 			local theProduct = inst.components.inventory:FindItem(function(item) return (item.prefab == v.components.cookable.product) end)
 			local canFillStack = false
 			if theProduct then
 				canFillStack = not inst.components.inventory:Has(v.components.cookable.product,theProduct.components.stackable.maxsize)
 			end
-			
-			print("Can we put this in an existing stack? " .. tostring(canFillStack))
 
 			if not inst.components.inventory:IsFull() or numfound == 1 or (theProduct and canFillStack) then
 				return BufferedAction(inst,cooker,ACTIONS.COOK,v)
@@ -710,9 +741,6 @@ local function CookSomeFood(inst)
 		end
 	end
 end
-
-
-
 
 --------------------------------------------------------------------------------
 
@@ -722,6 +750,10 @@ local function MidwayThroughDusk()
 	return clock:IsDusk() and (clock:GetTimeLeftInEra() < startTime/4)
 end
 
+local function IsBusy(inst)
+	return inst.sg:HasStateTag("busy") or inst:HasTag("DoingAction")
+end
+
 function ArtificalBrain:OnStart()
 	local clock = GetClock()
 	
@@ -729,6 +761,10 @@ function ArtificalBrain:OnStart()
 	self.inst:ListenForEvent("finishedwork", function(inst, data) OnFinishedWork(inst,data.target, data.action) end)
 	self.inst:ListenForEvent("buildstructure", function(inst, data) ListenForScienceMachine(inst,data) end)
 	self.inst:ListenForEvent("attacked", function(inst,data) print("I've been hit!") inst.components.combat:SetTarget(data.attacker) end)
+	
+	-- TODO: Make this a brain function so we can manage it dynamically
+	AddToIgnoreList("seeds")
+	AddToIgnoreList("flower_evil")
 	
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
@@ -748,29 +784,30 @@ function ArtificalBrain:OnStart()
 					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true)}),
 			
 			-- Make sure we eat
-			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
+			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
 			
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
-			-- Harvest stuff
-			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goPickup",
+			-- Collect stuff
+			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
 				DoAction(self.inst, function() return FindResourceOnGround(self.inst) end, "pickup_ground", true )),			
-			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goHarvest",
+			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
 				DoAction(self.inst, function() return FindResourceToHarvest(self.inst) end, "harvest", true )),
-			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goChop",
+			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.CHOP) end, "chopTree", true)),
-			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "notBusy_goMine",
+			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE) end, "mineRock", true)),
 				
 			-- Can't find anything to do...increase search distance
-			IfNode( function() return not self.inst.sg:HasStateTag("busy") and not self.inst:HasTag("DoingAction") end, "nothing_to_do",
+			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
 				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
 
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
-		},.25)
+		},.5)
 		
 
 		-- What to do the first half of dusk. 
@@ -792,7 +829,8 @@ function ArtificalBrain:OnStart()
 					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true)}),
 			
 			-- Make sure we eat
-			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
+			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
 			
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
@@ -820,7 +858,9 @@ function ArtificalBrain:OnStart()
 		-- Behave slightly different half way through dusk
 		local dusk2 = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() end, "IsDusk2",
 			PriorityNode{
-				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating"),
+			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+
 				IfNode( function() return HasValidHome(self.inst) end, "try to go home",
 					DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
 				--IfNode( function() return AtHome(self.inst) end, "am home",
@@ -849,7 +889,9 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
 				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
 			
-			DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true ),
+			-- Eat more at night
+			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .9 end, "notBusy_hungry",
+				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
             
         },.5)
 		

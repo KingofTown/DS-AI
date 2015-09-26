@@ -89,6 +89,8 @@ local function RemoveFromIgnoreList(prefab)
 	IGNORE_LIST[prefab] = nil
 end
 
+--------------------------------------------------------------------------------
+
 -- Makes sure we have the right tech level.
 -- If we don't have a resource, checks to see if we can craft it/them
 -- If we can craft all necessary resources to build something, returns true
@@ -221,28 +223,66 @@ end)
 -- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
 -- is scheduled and this callback will be triggered on both success and failure to denote 
 -- we are done with that action
-
-
 local function ActionDone(self, state)
 	--print("Action Done")
 	if self.currentAction ~= nil then 
-		self.currentAction:Cancel() 
+		self.currentAction:Cancel()
 		self.currentAction=nil  
-		self:RemoveTag("DoingLongAction")
+		--self:RemoveTag("DoingLongAction")
+		if state and state == "watchdog" then
+			print("Watchdog triggered on action " .. self.currentBufferedAction:__tostring())
+			self:RemoveTag("DoingLongAction")
+			self:AddTag("IsStuck")
+			self.components.locomotor:StopMoving()
+			-- Maybe I can push a new action...like, standstill
+		end
 	end
-	self:RemoveTag("DoingAction")
+	--self:RemoveTag("DoingAction")
+end
+
+-- Make him execute a 'RunAway' action to try to fix his angle?
+local function FixStuckWilson(inst)
+	local target = nil
+	if inst.currentBufferedAction then
+		target = inst.currentBufferedAction.target
+	end
+
+	
+	if target then
+		target:AddTag("TempTagForStuck")
+		target:DoTaskInTime(30,function() inst:RemoveTag("TempTagForStuck") end)
+	end
+	
+	inst:RemoveTag("IsStuck")
+
 end
 
 -- Adds our custom success and fail callback to a buffered action
 -- actionNumber is for a watchdog node
 
-local MAX_TIME_FOR_ACTION_SECONDS = 8
+local MAX_TIME_FOR_ACTION_SECONDS = 10
 local function SetupBufferedAction(inst, action)
-	inst:AddTag("DoingAction")
-	inst.currentAction = inst:DoTaskInTime(MAX_TIME_FOR_ACTION_SECONDS,function() print("watchdog trigger on action") ActionDone(inst, "failed") end)
+	--inst:AddTag("DoingAction")
+	inst.currentAction = inst:DoTaskInTime(MAX_TIME_FOR_ACTION_SECONDS,function() ActionDone(inst, "watchdog") end)
+	inst.currentBufferedAction = action
 	action:AddSuccessAction(function() inst:PushEvent("actionDone",{state="success"}) end)
 	action:AddFailAction(function() inst:PushEvent("actionDone",{state="failed"}) end)
+	print(action:__tostring())
 	return action	
+end
+
+--------------------------------------------------------------------------------
+-- MISC one time stuff (activate things)
+
+local function FindAndActivateTouchstone(inst)
+	
+	local target = FindEntity(inst, 25, function(item) return item.components.resurrector and 
+									item.components.activatable and item.components.activatable.inactive end)
+	if target then
+		print("Found a touchstone")
+		return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.ACTIVATE))
+	end
+
 end
 
 -----------------------------------------------------------------------
@@ -252,6 +292,7 @@ end
 -- Eat more stuff
 -- Drop useless stuff
 -- Craft stuff?
+-- Make a chest? 
 -- etc
 local function ManageInventory(inst)
 
@@ -339,7 +380,27 @@ end
 
 
 -- Harvest Actions
---local CurrentActionSearchDistance = MIN_SEARCH_DISTANCE
+
+local function FindHighPriorityThings(inst)
+    --local ents = TheSim:FindEntities(x,y,z, radius, musttags, canttags, mustoneoftags)
+	local p = Vector3(inst.Transform:GetWorldPosition())
+	if not p then return end
+	-- Get ALL things around us
+	local things = FindEntities(p.x,p.y,p.z, CurrentSearchDistance/2, nil, {"player"})
+	
+	local priorityItems = {}
+	for k,v in pairs(things) do
+		if v ~= inst and v.entity:IsValid() and v.entity:IsVisible() then
+			if IsInPriorityTable(v) then
+				table.insert(priorityItems,v)
+			end
+		end
+	end
+	
+	-- Filter out stuff
+end
+
+
 
 local function FindTreeOrRockAction(inst, action, continue)
 
@@ -361,6 +422,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 			inst:RemoveTag("DoingLongAction")
 		else 
 			inst:AddTag("DoingLongAction")
+			print("Continue long action")
 			return SetupBufferedAction(inst,BufferedAction(inst, currentTreeOrRock, currentTreeOrRock.components.workable.action))
 		end
 		
@@ -381,7 +443,21 @@ local function FindTreeOrRockAction(inst, action, continue)
 	end
 	
 	-- TODO, this will find all mineable structures (ice, rocks, sinkhole)
-	local target = FindEntity(inst, CurrentSearchDistance, function(item) return item.components.workable and item.components.workable.action == action end)
+	local target = FindEntity(inst, CurrentSearchDistance, function(item)
+			if not item.components.workable then return false end
+			if not item.components.workable:IsActionValid(action) then return false end
+
+			-- Ignore anything that is further than the current search distance as we might get stuck trying 
+			-- to find a path to it
+			local dist = inst:GetDistanceSqToInst(item)
+			if dist > (CurrentSearchDistance) then 
+				return false
+			end
+			
+			-- Found one
+			return true
+	
+		end)
 	
 	if target then
 		-- Found a tree...should we chop it?
@@ -438,7 +514,7 @@ local function FindResourceToHarvest(inst)
 						if theProductPrefab == nil then
 							return false
 						end
-						if OnIgnoreList(item.components.pickable.product) then
+						if OnIgnoreList(item.components.pickable.product) or item:HasTag("TempTagForStuck") then
 							return false
 						end
 						-- Check to see if we have a full stack of this item
@@ -477,6 +553,13 @@ local function FindResourceOnGround(inst)
 	local target = FindEntity(inst, CurrentSearchDistance, function(item)
 						-- Do we have a slot for this already
 						local haveItem = inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
+						
+						-- Ignore anything that is further than the current search distance as we might get stuck trying 
+						-- to find a path to it
+						local dist = inst:GetDistanceSqToInst(item)
+						if dist > (CurrentSearchDistance) then 
+							return false
+						end
 			
 						if item.components.inventoryitem and 
 							item.components.inventoryitem.canbepickedup and 
@@ -488,7 +571,8 @@ local function FindResourceOnGround(inst)
 							not (inst.components.inventory:IsFull() and haveItem == nil) and
 							not OnIgnoreList(item.prefab) and
 							not item:HasTag("prey") and
-							not item:HasTag("bird") then
+							not item:HasTag("bird") and
+							not item:HasTag("TempTagForStuck") then
 								return true
 						end
 					end)
@@ -524,6 +608,12 @@ end
 ---------------------------------------------------------------------------------
 -- COMBAT
 
+-- Things to pretty much always run away from
+-- TODO: Make this a dynamic list
+local function ShouldRunAway(guy)
+	return guy:HasTag("WORM_DANGER")
+end
+
 -- Under these conditions, fight back. Else, run away
 local function FightBack(inst)
 	if inst.components.combat.target ~= nil then
@@ -541,6 +631,9 @@ local function FightBack(inst)
 	if inst.sg:HasStateTag("busy") then
 		return
 	end
+	
+	-- If it's on the do_not_engage list, just run! Not sure how it got us, but it did.
+	if ShouldRunAway(inst) then return end
 	
 	-- Do we want to fight this target? 
 	-- What conditions would we fight under? Armor? Weapons? Hounds? etc
@@ -588,12 +681,49 @@ local function FightBack(inst)
 			end
 			print("Can't build a spear. I'm using whatever I've got!")
 		end
-
 	end
 	
-	-- Equip our best weapon
+	
+	-- Equip our best weapon (before armor incase its in our backpack)
 	if equipped ~= highestDamageWeapon and highestDamageWeapon ~= nil then
 		inst.components.inventory:Equip(highestDamageWeapon)
+	end
+	
+	-- We're gonna fight. Do we have armor that's not equiped?
+	if not inst.components.inventory:IsWearingArmor() then
+		-- Do we have any? Equip the one with the highest value
+		-- Else, try to make some (what order should I make it in?)
+		local allArmor = inst.components.inventory:FindItems(function(item) return item.components.armor end)
+		
+		-- Don't have any. Can we make some?
+		if #allArmor == 0 then
+			print("Don't own armor. Can I make some?")
+			-- TODO: Make this from a lookup table or something.
+			if CanIBuildThis(inst,"armorwood") then
+				BuildThis(inst,"armorwood")
+			elseif CanIBuildThis(inst,"armorgrass") then
+				BuildThis(inst,"armorgrass")
+			end
+		end
+		
+		-- Do another lookup
+		allArmor = inst.components.inventory:FindItems(function(item) return item.components.armor end)
+		local highestArmorValue = nil
+		for k,v in pairs(allArmor) do 
+			if highestArmorValue == nil and v.components.armor.absorb_percent then 
+				highestArmorValue = v
+			else
+				if v.components.armor.absorb_percent and 
+				v.components.armor.absorb_percent > highestArmorValue.components.armor.absorb_persent then
+					highestArmorValue = v
+				end
+			end
+		end
+		
+		if highestArmorValue then
+			-- TODO: Need to pick up backpack once we make one
+			inst.components.inventory:Equip(highestArmorValue)
+		end
 	end
 	
 	inst:AddTag("FightBack")
@@ -764,7 +894,7 @@ function ArtificalBrain:OnStart()
 	
 	-- TODO: Make this a brain function so we can manage it dynamically
 	AddToIgnoreList("seeds")
-	AddToIgnoreList("flower_evil")
+	AddToIgnoreList("petals_evil")
 	
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
@@ -786,6 +916,10 @@ function ArtificalBrain:OnStart()
 			-- Make sure we eat
 			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
 				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+				
+			-- If there's a touchstone nearby, activate it
+			IfNode( function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
+				DoAction(self.inst,function() return FindAndActivateTouchstone(self.inst) end, "findTouchstone", true)),
 			
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
@@ -804,6 +938,7 @@ function ArtificalBrain:OnStart()
 			-- Can't find anything to do...increase search distance
 			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
 				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+				
 
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
@@ -908,7 +1043,15 @@ function ArtificalBrain:OnStart()
         PriorityNode(
         {   
 			-- No matter the time, panic when on fire
+			--WhileNode(function() local ret = self.inst:HasTag("Stuck") self.inst:RemoveTag("Stuck") return ret end, "Stuck", Panic(self.inst)),
+			IfNode( function() return self.inst:HasTag("IsStuck") end, "stuck",
+				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
+				
+			--RunAway(self.inst, "TempTagForStuck", CurrentSearchDistance*3, CurrentSearchDistance*3+10),
+
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
+			-- Always run away from these things
+			RunAway(self.inst, ShouldRunAway, 4, 8),
 			day,
 			dusk,
 			dusk2,

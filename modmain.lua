@@ -6,6 +6,7 @@ local GetPlayer = GLOBAL.GetPlayer
 AddBrainPostInit("artificalwilson",ArtificalWilson)
 
 local function setSelfAI()
+	print("Enabling Artifical Wilson")
 	local player = GetPlayer()
 	--player:RemoveComponent("playercontroller")
 	player:AddComponent("follower")
@@ -17,8 +18,9 @@ local function setSelfAI()
 end
 
 local function setSelfNormal()
+	print("Disabling Artifical Wilson")
 	local player = GetPlayer()
-	local brain = GLOBAL.require "brains/wilson"
+	local brain = GLOBAL.require "brains/wilsonbrain"
 	player:SetBrain(brain)
 	player:RemoveTag("ArtificalWilson")
 	player:RemoveComponent("follower")

@@ -348,7 +348,7 @@ local function FindValidHome(inst)
 				-- This will push an event to set our home location
 				-- If we can, make a firepit too
 				if inst.components.builder:CanBuild("firepit") then
-					local pitPos = GetPointNearThing(inst,4)
+					local pitPos = GetPointNearThing(inst,6)
 					inst.components.builder:DoBuild("firepit",pitPos)
 				end
 			else
@@ -407,12 +407,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 	if inst.sg:HasStateTag("busy") then
 		return
 	end
-	
-	-- Probably entered in the LoopNode. Don't swing mid swing.
-	--if inst:HasTag("DoingAction") then return end
-	
-	--print("FindTreeOrRock")
-	
+
 	-- We are currently chopping down a tree (or mining a rock). If it's still there...don't stop
 	if currentTreeOrRock ~= nil and inst:HasTag("DoingLongAction") then
 		-- Assume the tool in our hand is still the correct one. If we aren't holding anything, we're done
@@ -460,8 +455,6 @@ local function FindTreeOrRockAction(inst, action, continue)
 		end)
 	
 	if target then
-		-- Found a tree...should we chop it?
-		-- Check to see if axe is already equipped. If not, equip one
 		local equiped = inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
 		local alreadyEquipped = false
 		local axe = nil
@@ -503,17 +496,18 @@ end
 
 local function FindResourceToHarvest(inst)
 	--print("FindResourceToHarvest")
-	if inst.sg:HasStateTag("busy") then
-		return
-	end
-	
-	if not inst.components.inventory:IsFull() then
+	--if not inst.components.inventory:IsFull() then
 		local target = FindEntity(inst, CurrentSearchDistance, function(item)
+					
 					if item.components.pickable and item.components.pickable:CanBePicked() and item.components.pickable.caninteractwith then
 						local theProductPrefab = item.components.pickable.product
 						if theProductPrefab == nil then
 							return false
 						end
+						
+						-- If we have some of this product, it will override the isFull check
+						local haveItem = inst.components.inventory:FindItem(function(invItem) return theProductPrefab == invItem.prefab end)
+						
 						if OnIgnoreList(item.components.pickable.product) or item:HasTag("TempTagForStuck") then
 							return false
 						end
@@ -535,19 +529,13 @@ local function FindResourceToHarvest(inst)
 			ResetSearchDistance()
 			return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.PICK))
 		end
-	end
+	--end
 end
 
 -- Do an expanding search. Look for things close first.
 
 local function FindResourceOnGround(inst)
-
 	--print("FindResourceOnGround")
-	if inst.sg:HasStateTag("busy") then
-		return
-	end
-	
-	
 
 	-- TODO: Only have up to 1 stack of the thing (modify the findentity fcn)
 	local target = FindEntity(inst, CurrentSearchDistance, function(item)
@@ -594,11 +582,44 @@ local function HaveASnack(inst)
 	
 	-- TODO: Find cookable food (can't eat some things raw)
 	
+	local bestFoodToEat = nil
 	for k,v in pairs(allFoodInInventory) do
 		-- Sort this list in some way. Currently just eating the first thing.
 		-- TODO: Get the hunger value from the food and spoil rate. Prefer to eat things 
 		--       closer to spoiling first
-		return SetupBufferedAction(inst,BufferedAction(inst,v,ACTIONS.EAT))
+		if bestFoodToEat == nil then
+			bestFoodToEat = v
+		else
+
+			if v.components.edible:GetHunger(inst) >= bestFoodToEat.components.edible:GetHunger(inst) then
+				-- If it's tied, order by perishable percentage
+				local newWillPerish = v.components.perishable
+				local curWillPerish = bestFoodToEat.components.perishable
+				if newWillPerish and not curWillPerish then
+					bestFoodToEat = v
+				elseif newWillPerish and curWillPerish and newWillPerish:GetPercent() < curWillPerish:GetPercent() then
+					bestFoodToEat = v
+				else
+					-- Keep the original...it will go stale before this one. 
+				end
+			else
+				-- The new food will provide less hunger. Only consider this if it is close to going stale or going
+				-- really bad
+				if v.components.perishable then
+					-- Stale happens at .5, so we'll get things between .5 and .6
+					if v.components.perishable:IsFresh() and v.components.perishable:GetPercent() < .6 then
+						bestFoodToEat = v
+					-- Likewise, next phase is at .2, so get things between .2 and .3
+					elseif v.components.perishable:IsStale() and v.components.perishable:GetPercent() < .3 then
+						bestFoodToEat = v
+					end
+				end
+			end
+		end
+	end
+	
+	if bestFoodToEat then 
+		return SetupBufferedAction(inst,BufferedAction(inst,bestFoodToEat,ACTIONS.EAT))
 	end
 	
 	-- TODO:

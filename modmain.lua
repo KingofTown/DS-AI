@@ -3,6 +3,8 @@ local dlcEnabled = GLOBAL.IsDLCEnabled(GLOBAL.REIGN_OF_GIANTS)
 local SEASONS = GLOBAL.SEASONS
 local GetPlayer = GLOBAL.GetPlayer
 
+local ArtificalWilsonEnabled = false
+
 AddBrainPostInit("artificalwilson",ArtificalWilson)
 
 local function setSelfAI()
@@ -14,6 +16,7 @@ local function setSelfAI()
 	player:AddTag("ArtificalWilson")
 	local brain = GLOBAL.require "brains/artificalwilson"
 	player:SetBrain(brain)
+	ArtificalWilsonEnabled = true
 	--player:ListenForEvent("attacked", OnAttacked)
 end
 
@@ -25,6 +28,7 @@ local function setSelfNormal()
 	player:RemoveTag("ArtificalWilson")
 	player:RemoveComponent("follower")
 	player:RemoveComponent("homeseeker")
+	ArtificalWilsonEnabled = false
 end
 
 local function spawnAI(sim)
@@ -66,4 +70,51 @@ GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_P, function()
 	end
 	
 end)
+
+
+local function MakeClickableBrain()
+
+	local player = GLOBAL.GetPlayer()
+	local controls = player.HUD.controls
+	local status = controls.status
+	
+	status.brain:SetClickable(true)
+	
+	local x = 0
+	local darker = true
+	local function BrainPulse(self)
+		if not darker then
+			x = x+.1
+			if x >=1 then
+				darker = true
+				x = 1
+			end
+		else 
+			x = x-.1
+			if x <=.5 then
+				darker = false
+				x = .5
+			end
+		end
+
+		status.brain.anim:GetAnimState():SetMultColour(x,x,x,1)
+		self.brainPulse = self:DoTaskInTime(.15,BrainPulse)
+	end
+	
+	status.brain.OnMouseButton = function(self,button,down,x,y)	
+		if down == true then
+			if ArtificalWilsonEnabled then
+				self.owner.brainPulse:Cancel()
+				status.brain.anim:GetAnimState():SetMultColour(1,1,1,1)
+				setSelfNormal()
+			else
+				BrainPulse(self.owner)
+				setSelfAI()
+			end
+		end
+	end
+	
+end
+
+AddSimPostInit(MakeClickableBrain)
 

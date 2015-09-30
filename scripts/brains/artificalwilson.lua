@@ -12,6 +12,8 @@ require "behaviours/leash"
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
 local SEARCH_SIZE_STEP = 10
+local RUN_AWAY_SEE_DIST = 6
+local RUN_AWAY_STOP_DIST = 12
 local CurrentSearchDistance = MIN_SEARCH_DISTANCE
 
 -- The order in which we prioritize things to build
@@ -198,7 +200,6 @@ local function BuildThis(player, thingToBuild, pos)
 	else
 		print("Something is messed up. We can't make " .. thingToBuild .. "!!!")
 	end
-	
 end
 
 -- Returns a point somewhere near thing at a distance dist
@@ -220,7 +221,6 @@ end
 local ArtificalBrain = Class(Brain, function(self, inst)
     Brain._ctor(self,inst)
 end)
-
 
 -- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
 -- is scheduled and this callback will be triggered on both success and failure to denote 
@@ -261,7 +261,7 @@ end
 local MAX_TIME_FOR_ACTION_SECONDS = 10
 local function SetupBufferedAction(inst, action)
 	inst:AddTag("DoingAction")
-	inst.currentAction = inst:DoTaskInTime(CurrentSearchDistance+2,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
+	inst.currentAction = inst:DoTaskInTime((CurrentSearchDistance/2)+3,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
 	inst.currentBufferedAction = action
 	action:AddSuccessAction(function() inst:PushEvent("actionDone",{theAction = action, state="success"}) end)
 	action:AddFailAction(function() inst:PushEvent("actionDone",{theAction = action, state="failed"}) end)
@@ -301,7 +301,7 @@ local function ManageHealth(inst)
 	if inst.sg:HasStateTag("busy") then
 		return
 	end
-	-- Don't waste time if over 90% health
+	-- Don't waste time if over 75% health
 	if inst.components.health:GetPercent() > .75 then return end
 	
 	-- Do not try to do this while in combat
@@ -752,7 +752,7 @@ end
 -- Things to pretty much always run away from
 -- TODO: Make this a dynamic list
 local function ShouldRunAway(guy)
-	return guy:HasTag("WORM_DANGER")
+	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard")
 end
 
 -- Under these conditions, fight back. Else, run away
@@ -946,15 +946,22 @@ local function MakeLightSource(inst)
 		-- Find some fuel in our inventory to add
 		local allFuelInInv = inst.components.inventory:FindItems(function(item) return item.components.fuel and 
 																				not item.components.armor and
+																				item.prefab ~= "livinglog" and
 																				firepit.components.fueled:CanAcceptFuelItem(item) end)
 		
 		-- Add some fuel to the fire.
-		
+		local bestFuel = nil
 		for k,v in pairs(allFuelInInv) do
-			-- TODO: Sort this by a burn order. Probably logs first.
-			if firepit.components.fueled:GetPercent() < .25 then
+			-- TODO: This is a bit hackey...but really, logs are #1
+			if v.prefab == "log" then
 				return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, v)
+			else
+				bestFuel = v
 			end
+		end
+		-- Don't add this stuff unless the fire is really sad
+		if bestFuel and firepit.components.fueled:GetPercent() < .15 then
+			return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, bestFuel)
 		end
 		
 		-- We don't have enough fuel. Let it burn longer before executing backup plan
@@ -1002,6 +1009,28 @@ local function MakeLightSource(inst)
 		print("So...this is how I die")
 	end
 
+end
+
+local function MakeTorchAndKeepRunning(inst)
+	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
+	if not haveTorch then
+		-- Need to make one!
+		if inst.components.builder:CanBuild("torch") then
+			inst.components.builder:DoBuild("torch")
+		end
+	end
+	-- Find it again
+	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
+	if haveTorch then
+		inst.components.inventory:Equip(haveTorch)
+	end
+	
+	-- OK, have a torch. Run home!
+	if  haveTorch and HasValidHome(inst) and
+        not inst.components.combat.target then
+			inst.components.homeseeker:GoHome(true)
+    end
+	
 end
 
 local function IsNearCookingSource(inst)
@@ -1056,23 +1085,24 @@ function ArtificalBrain:OnStart()
 	AddToIgnoreList("petals_evil")
 	AddToIgnoreList("marsh_tree")
 	AddToIgnoreList("marsh_bush")
+	AddToIgnoreList("tallbirdegg")
 	
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
 		PriorityNode{
 			--RunAway(self.inst, "hostile", 15, 30),
 			-- We've been attacked. Equip a weapon and fight back.
-			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
-				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
-			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-				ChaseAndAttack(self.inst,20)),
-			-- This is if we don't want to fight what is attaking us. We'll run from it instead.
-			RunAway(self.inst,"TryingToKillUs",3,8),
+			
+			-- Moved these to root
+			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
+			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
+			--WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
+			--	ChaseAndAttack(self.inst,20)),
 			
 			-- If we started doing a long action, keep doing that action
-			WhileNode(function() return not IsBusy(self.inst) and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
+			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
 
-					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) 	),
+				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) 	),
 			
 			-- Make sure we eat
 			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
@@ -1109,17 +1139,16 @@ function ArtificalBrain:OnStart()
 	-- Do this stuff the first half of duck (or all of dusk if we don't have a home yet)
 	local dusk = WhileNode( function() return clock and clock:IsDusk() and (not MidwayThroughDusk() or not HasValidHome(self.inst)) end, "IsDusk",
         PriorityNode{
-			--RunAway(self.inst, "hostile", 15, 30),
+
+			-- Moved these to root
 			-- We've been attacked. Equip a weapon and fight back.
-			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
-				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
-			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-				ChaseAndAttack(self.inst,20)),
-			-- This is if we don't want to fight what is attacking us. We'll run from it instead.
-			RunAway(self.inst,"TryingToKillUs",3,8),
+			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
+			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
+			--WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
+			--	ChaseAndAttack(self.inst,20)),
 			
 			-- If we started doing a long action, keep doing that action
-			WhileNode(function() return not IsBusy(self.inst) and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
+			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
 					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true)	),
 			
 			-- Make sure we eat
@@ -1179,6 +1208,10 @@ function ArtificalBrain:OnStart()
 	--]]
 	local night = WhileNode( function() return clock and clock:IsNight() end, "IsNight",
         PriorityNode{
+			-- If we aren't home but we have a home, make a torch and keep running!
+			--WhileNode(function() return HasValidHome(self.inst) and not AtHome(self.inst) end, "runHomeJack",
+			--	DoAction(self.inst, function() return MakeTorchAndKeepRunning(self.inst) end, "make torch", true)),
+				
 			-- Must be near light! 	
 			IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
 				DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
@@ -1208,19 +1241,32 @@ function ArtificalBrain:OnStart()
 			--WhileNode(function() local ret = self.inst:HasTag("Stuck") self.inst:RemoveTag("Stuck") return ret end, "Stuck", Panic(self.inst)),
 			IfNode( function() return self.inst:HasTag("IsStuck") end, "stuck",
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
-				
-			--RunAway(self.inst, "TempTagForStuck", CurrentSearchDistance*3, CurrentSearchDistance*3+10),
-
+			
+			-- Quit standing in the fire, idiot
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
+			
+			-- When hit, determine if we should fight this thing or not
+			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
+				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
+				
 			-- Always run away from these things
-			RunAway(self.inst, ShouldRunAway, 4, 8),
-			RunAway(self.inst,"TryingToKillUs",3,8),
+			RunAway(self.inst, ShouldRunAway, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
+
 			-- Try to stay healthy
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal",
 				DoAction(self.inst,function() return ManageHealth(self.inst) end, "Manage Health", true)),
 			-- Try to stay sane
 			DoAction(self.inst,function() return ManageSanity(self.inst) end, "Manage Sanity", true),
 			-- Hunger is managed during the days/nights
+			
+			-- Prototype things whenever we get a chance
+			-- Home is defined as our science machine...
+			IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) end, "atHome", 
+				DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
+				
+			-- Always fight back or run. Don't just stand there like a tool
+			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
+				ChaseAndAttack(self.inst,20)),
 			day,
 			dusk,
 			dusk2,

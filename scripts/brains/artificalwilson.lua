@@ -89,7 +89,9 @@ local function AddToIgnoreList(prefab)
 end
 
 local function RemoveFromIgnoreList(prefab)
-	IGNORE_LIST[prefab] = nil
+	if OnIgnoreList(prefab) then
+		IGNORE_LIST[prefab] = nil
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -185,8 +187,8 @@ local function BuildThis(player, thingToBuild, pos)
 			while v.toMakeNum > 0 do 
 				if player.components.builder:CanBuild(v.toMake) then
 					--player.components.builder:DoBuild(v.toMake)
-					local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,v.toMake,nil)
-					inst:PushBufferedAction(action)
+					local action = BufferedAction(player,player,ACTIONS.BUILD,nil,pos,v.toMake,nil)
+					player:PushBufferedAction(action)
 					v.toMakeNum = v.toMakeNum - 1
 				else
 					print("Uhh...we can't make " .. v.toMake .. "!!!")
@@ -199,8 +201,8 @@ local function BuildThis(player, thingToBuild, pos)
 	-- We should have everything we need
 	if player.components.builder:CanBuild(thingToBuild) then
 		--player.components.builder:DoBuild(thingToBuild,pos)
-		local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,thingToBuild,nil)
-		inst:PushBufferedAction(action)
+		local action = BufferedAction(player,player,ACTIONS.BUILD,nil,pos,thingToBuild,nil)
+		player:PushBufferedAction(action)
 	else
 		print("Something is messed up. We can't make " .. thingToBuild .. "!!!")
 	end
@@ -246,16 +248,19 @@ local function ActionDone(self, data)
 		print("Action Done")
 	end
 
+	-- Cancel the DoTaskInTime for this event
 	if self.currentAction ~= nil then
 		self.currentAction:Cancel()
 		self.currentAction=nil
-	else 
-		if state and state == "watchdog" then
-			print("Watchdog triggered on action " .. self.currentBufferedAction:__tostring())
-			self:RemoveTag("DoingLongAction")
-			self:AddTag("IsStuck")
-		end
 	end
+
+	if state and state == "watchdog" then
+		print("Watchdog triggered on action " .. self.currentBufferedAction:__tostring())
+		self:RemoveTag("DoingLongAction")
+		self:AddTag("IsStuck")
+		-- Really should remove this entity from being selected again. It will just live on forever
+	end
+	
 	self:RemoveTag("DoingAction")
 end
 
@@ -426,6 +431,11 @@ local function FindValidHome(inst)
 				--return SetupBufferedAction(inst, BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil))
 				local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil)
 				inst:PushBufferedAction(action)
+				
+				-- Can we also make a backpack while we are here?
+				if CanIBuildThis(inst,"backpack") then
+					BuildThis(inst,"backpack")
+				end
 			
 			--	inst.components.builder:DoBuild("researchlab",machinePos)
 			--	-- This will push an event to set our home location
@@ -456,8 +466,8 @@ end
 
 
 local currentTreeOrRock = nil
-local function OnFinishedWork(inst,target,action)
-	print("Work finished on " .. target.prefab)
+local function OnFinishedWork(inst,data)
+	print("Work finished on " .. data.target.prefab)
 	currentTreeOrRock = nil
 	inst:RemoveTag("DoingLongAction")
 end
@@ -507,7 +517,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 		end
 		
 	else
-		print("Not doing long action")
+		--print("Not doing long action")
 		inst:RemoveTag("DoingLongAction")
 		currentTreeOrRock = nil
 	end
@@ -675,8 +685,7 @@ end
 -----------------------------------------------------------------------
 -- Eating and stuff
 local function HaveASnack(inst)
-	print("HaveASnack")
-			
+		
 	-- Check inventory for food. 
 	-- If we have none, set the priority item to find to food (TODO)
 	local allFoodInInventory = inst.components.inventory:FindItems(function(item) return 
@@ -1095,13 +1104,29 @@ local function IsBusy(inst)
 	return inst.sg:HasStateTag("busy") or inst:HasTag("DoingAction")
 end
 
+
+local function OnHitFcn(inst,data)
+	inst.components.combat:SetTarget(data.attacker)
+end
+
+
+function ArtificalBrain:OnStop()
+	print("Stopping the brain!")
+	self.inst:RemoveEventCallback("actionDone",ActionDone)
+	self.inst:RemoveEventCallback("finishedwork", OnFinishedWork)
+	self.inst:RemoveEventCallback("buildstructure", ListenForScienceMachine)
+	self.inst:RemoveEventCallback("attacked", OnHitFcn)
+	self.inst:RemoveTag("DoingLongAction")
+	self.inst:RemoveTag("DoingAction")
+end
+
 function ArtificalBrain:OnStart()
 	local clock = GetClock()
 	
-	self.inst:ListenForEvent("actionDone",function(inst,data) ActionDone(inst,data) end)
-	self.inst:ListenForEvent("finishedwork", function(inst, data) OnFinishedWork(inst,data.target, data.action) end)
-	self.inst:ListenForEvent("buildstructure", function(inst, data) ListenForScienceMachine(inst,data) end)
-	self.inst:ListenForEvent("attacked", function(inst,data) print("I've been hit!") inst.components.combat:SetTarget(data.attacker) end)
+	self.inst:ListenForEvent("actionDone",ActionDone)
+	self.inst:ListenForEvent("finishedwork", OnFinishedWork)
+	self.inst:ListenForEvent("buildstructure", ListenForScienceMachine)
+	self.inst:ListenForEvent("attacked", OnHitFcn)
 	
 	-- TODO: Make this a brain function so we can manage it dynamically
 	AddToIgnoreList("seeds")
@@ -1109,6 +1134,15 @@ function ArtificalBrain:OnStart()
 	AddToIgnoreList("marsh_tree")
 	AddToIgnoreList("marsh_bush")
 	AddToIgnoreList("tallbirdegg")
+	
+	-- If we don't have a home, find a science machine in the world and make that our home
+	if not HasValidHome(self.inst) then
+		local scienceMachine = FindEntity(self.inst, 10000, function(item) return item.prefab and item.prefab == "researchlab" end)
+		if scienceMachine then
+			print("Found our home!")
+			self.inst.components.homeseeker:SetHome(scienceMachine)
+		end
+	end
 	
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",

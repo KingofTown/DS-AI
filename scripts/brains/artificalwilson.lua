@@ -12,6 +12,7 @@ require "behaviours/leash"
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
 local SEARCH_SIZE_STEP = 10
+local CurrentSearchDistance = MIN_SEARCH_DISTANCE
 
 -- The order in which we prioritize things to build
 -- Stuff to be collected should follow the priority of the build order
@@ -234,16 +235,14 @@ local function ActionDone(self, data)
 		print("Action Done")
 	end
 
-	if self.currentAction ~= nil then 
+	if self.currentAction ~= nil then
 		self.currentAction:Cancel()
-		self.currentAction=nil  
-		--self:RemoveTag("DoingLongAction")
+		self.currentAction=nil
+	else 
 		if state and state == "watchdog" then
 			print("Watchdog triggered on action " .. self.currentBufferedAction:__tostring())
 			self:RemoveTag("DoingLongAction")
 			self:AddTag("IsStuck")
-			--self.components.locomotor:StopMoving()
-			-- Maybe I can push a new action...like, standstill
 		end
 	end
 	self:RemoveTag("DoingAction")
@@ -251,21 +250,9 @@ end
 
 -- Make him execute a 'RunAway' action to try to fix his angle?
 local function FixStuckWilson(inst)
-
-
-	local target = nil
-	if inst.currentBufferedAction then
-		target = inst.currentBufferedAction.target
-	end
-
-	
-	if target then
-		--target:AddTag("TempTagForStuck")
-		--target:DoTaskInTime(30,function() inst:RemoveTag("TempTagForStuck") end)
-	end
-	
+	-- Just reset the whole behaviour tree...that will get us unstuck
+	inst.brain.bt:Reset()
 	inst:RemoveTag("IsStuck")
-
 end
 
 -- Adds our custom success and fail callback to a buffered action
@@ -274,7 +261,7 @@ end
 local MAX_TIME_FOR_ACTION_SECONDS = 10
 local function SetupBufferedAction(inst, action)
 	inst:AddTag("DoingAction")
-	inst.currentAction = inst:DoTaskInTime(MAX_TIME_FOR_ACTION_SECONDS,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
+	inst.currentAction = inst:DoTaskInTime(CurrentSearchDistance+2,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
 	inst.currentBufferedAction = action
 	action:AddSuccessAction(function() inst:PushEvent("actionDone",{theAction = action, state="success"}) end)
 	action:AddFailAction(function() inst:PushEvent("actionDone",{theAction = action, state="failed"}) end)
@@ -290,7 +277,6 @@ local function FindAndActivateTouchstone(inst)
 	local target = FindEntity(inst, 25, function(item) return item.components.resurrector and 
 									item.components.activatable and item.components.activatable.inactive end)
 	if target then
-		print("Found a touchstone")
 		return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.ACTIVATE))
 	end
 
@@ -309,6 +295,78 @@ local function ManageInventory(inst)
 
 end
 
+-- Eat health restoring food
+-- Put health items on top of priority list when health is low
+local function ManageHealth(inst)
+	if inst.sg:HasStateTag("busy") then
+		return
+	end
+	-- Don't waste time if over 90% health
+	if inst.components.health:GetPercent() > .75 then return end
+	
+	-- Do not try to do this while in combat
+	if inst:HasTag("FightBack") or inst.components.combat.target ~= nil then return end
+	
+	-- Do not try to do this while running away
+	-- TODO
+	
+	local healthMissing = inst.components.health:GetMaxHealth() - inst.components.health.currenthealth
+	
+	-- Do we have edible food? 
+	local bestFood = nil
+	-- If we have food that restores health, eat it
+	local healthFood = inst.components.inventory:FindItems(function(item) return inst.components.eater:CanEat(item) and item.components.edible:GetHealth(inst) > 0 end)
+	
+	-- Find the best food that doesn't go over and eat that.
+	-- TODO: Sort by staleness
+	for k,v in pairs(healthFood) do
+		local h = v.components.edible:GetHealth(inst)
+		-- Only consider foods that heal for less than hunger if we are REALLY hurting
+		local z = v.components.edible:GetHunger(inst)
+		
+		-- h > z, this item is better used as healing
+		-- or heals for more than 5 and we are really hurting
+		if h > z or (h <= z and  h >= 5 and inst.components.health:GetPercent() < .2) then
+			if h <= healthMissing then
+				if not bestFood or (bestFood and bestFood.components.edible:GetHealth(inst) < h) then
+					bestFood = v
+				end
+			end
+		end
+	end
+	
+	if bestFood then
+		return SetupBufferedAction(inst,BufferedAction(inst,bestFood,ACTIONS.EAT))
+	end
+	
+	-- Out of food. Do we have any other healing items?
+	local healthItems = inst.components.inventory:FindItems(function(item) return item.components.healer end)
+	
+	local bestHealthItem = nil
+	for k,v in pairs(healthItems) do 
+		local h = v.components.healer.health
+		if h <= healthMissing then
+			if not bestHealthItem or (bestHealthItem and bestHealthItem.components.healer.health < h) then
+				bestHealthItem = v
+			end
+		end
+	end
+	
+	if bestHealthItem then
+		print("Healing with " .. bestHealthItem.prefab)
+		return SetupBufferedAction(inst,BufferedAction(inst,inst,ACTIONS.HEAL,bestHealthItem))
+	end
+	
+	-- Got this far...we're out of stuff. Add stuff to the priority list!
+	-- TODO!!!
+end
+
+-- Eat sanity restoring food
+-- Put sanity things on top of list when sanity is low
+local function ManageSanity(inst)
+
+end
+
 
 -----------------------------------------------------------------------
 -- Go home stuff
@@ -319,7 +377,6 @@ local function HasValidHome(inst)
 end
 
 local function GoHomeAction(inst)
-	print("GoHomeAction")
     if  HasValidHome(inst) and
         not inst.components.combat.target then
 			inst.components.homeseeker:GoHome(true)
@@ -372,7 +429,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Gather stuff
-local CurrentSearchDistance = MIN_SEARCH_DISTANCE
+
 local function IncreaseSearchDistance()
 	print("IncreaseSearchDistance")
 	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
@@ -392,7 +449,7 @@ end
 
 
 -- Harvest Actions
-
+-- TODO: Implement this 
 local function FindHighPriorityThings(inst)
     --local ents = TheSim:FindEntities(x,y,z, radius, musttags, canttags, mustoneoftags)
 	local p = Vector3(inst.Transform:GetWorldPosition())
@@ -445,11 +502,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 	if action == ACTIONS.CHOP and inst.components.inventory:Has("log",20) then
 		return
 	end
-	
-	-- This is super hacky too
-	if action == ACTIONS.MINE and inst.components.inventory:Has("goldnugget",10) then
-		return
-	end
+
 	
 	-- TODO, this will find all mineable structures (ice, rocks, sinkhole)
 	local target = FindEntity(inst, CurrentSearchDistance, function(item)
@@ -458,6 +511,16 @@ local function FindTreeOrRockAction(inst, action, continue)
 			
 			-- TODO: Put ignored prefabs
 			if OnIgnoreList(item.prefab) then return false end
+			
+			-- Skip this if it only drops stuff we are full of
+			-- TODO, get the lootdroper rather than knowing what prefab it is...
+			if item.prefab and item.prefab == "rock1" then
+				return not inst.components.inventory:Has("flint",20)
+			elseif item.prefab and item.prefab == "rock2" then
+				return not inst.components.inventory:Has("goldnugget",20)
+			elseif item.prefab and item.prefab == "rock_flintless" then
+				return not inst.components.inventory:Has("rocks",40)
+			end
 
 			-- TODO: Determine if this is across water or something...
 			--local dist = inst:GetDistanceSqToInst(item)
@@ -567,6 +630,8 @@ local function FindResourceOnGround(inst)
 						
 						-- Ignore these dang trinkets
 						if item.prefab and string.find(item.prefab, "trinket") then return false end
+						-- We won't need these thing either.
+						if item.prefab and string.find(item.prefab, "teleportato") then return false end
 			
 						if item.components.inventoryitem and 
 							item.components.inventoryitem.canbepickedup and 
@@ -597,15 +662,16 @@ local function HaveASnack(inst)
 			
 	-- Check inventory for food. 
 	-- If we have none, set the priority item to find to food (TODO)
-	local allFoodInInventory = inst.components.inventory:FindItems(function(item) return inst.components.eater:CanEat(item) and item.components.edible:GetHunger(inst) > 0 end)
+	local allFoodInInventory = inst.components.inventory:FindItems(function(item) return 
+									inst.components.eater:CanEat(item) and 
+									item.components.edible:GetHunger(inst) > 0 and
+									item.components.edible:GetHealth(inst) >= 0 and
+									item.components.edible:GetSanity(inst) >= 0 end)
 	
-	-- TODO: Find cookable food (can't eat some things raw)
+	
 	
 	local bestFoodToEat = nil
 	for k,v in pairs(allFoodInInventory) do
-		-- Sort this list in some way. Currently just eating the first thing.
-		-- TODO: Get the hunger value from the food and spoil rate. Prefer to eat things 
-		--       closer to spoiling first
 		if bestFoodToEat == nil then
 			bestFoodToEat = v
 		else
@@ -647,6 +713,35 @@ local function HaveASnack(inst)
 		return SetupBufferedAction(inst,BufferedAction(inst,bestFoodToEat,ACTIONS.EAT))
 	end
 	
+	-- We didn't find anything good. Check food that might hurt us if we are real hungry
+	if inst.components.hunger:GetPercent() > .15 then 
+		return 
+	end
+	print("We're too hungry. Check emergency reserves!")
+	
+	allFoodInInventory = inst.components.inventory:FindItems(function(item) return 
+									inst.components.eater:CanEat(item) and 
+									item.components.edible:GetHunger(inst) > 0 and
+									item.components.edible:GetHealth(inst) < 0 end)
+									
+	for k,v in pairs(allFoodInInventory) do
+		local health = v.components.edible:GetHealth(inst)
+		if not bestFoodToEat and health > inst.components.health.currenthealth then 
+			bestFoodToEat = v
+		elseif bestFoodToEat and health > inst.components.health.currenthealth then
+			if v.components.edible:GetHunger(inst) > bestFoodToEat.components.edible:GetHunger(inst) and 
+				health <= bestFoodToEat.components.edible:GetHealth(inst) and
+				health > inst.components.health.currenthealth then
+					bestFoodToEat = v
+			end
+		end
+	end
+	
+	if bestFoodToEat then 
+		return SetupBufferedAction(inst,BufferedAction(inst,bestFoodToEat,ACTIONS.EAT))
+	end
+	
+	
 	-- TODO:
 	-- We didn't find antying to eat and we're hungry. Set our priority to finding food!
 
@@ -680,6 +775,9 @@ local function FightBack(inst)
 	
 	-- If it's on the do_not_engage list, just run! Not sure how it got us, but it did.
 	if ShouldRunAway(inst) then return end
+	
+	-- If we're close to dead...run away
+	if inst.components.health:GetPercent() < .35 then return end
 	
 	-- All things seem to fight in groups. Count the number of like mobs near this mob. If more than 2, runaway!
 	local pos = Vector3(inst.Transform:GetWorldPosition())
@@ -973,8 +1071,8 @@ function ArtificalBrain:OnStart()
 			
 			-- If we started doing a long action, keep doing that action
 			WhileNode(function() return not IsBusy(self.inst) and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-				LoopNode{
-					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) }	),
+
+					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) 	),
 			
 			-- Make sure we eat
 			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
@@ -1022,8 +1120,7 @@ function ArtificalBrain:OnStart()
 			
 			-- If we started doing a long action, keep doing that action
 			WhileNode(function() return not IsBusy(self.inst) and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-				LoopNode{
-					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) }	),
+					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true)	),
 			
 			-- Make sure we eat
 			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
@@ -1050,7 +1147,7 @@ function ArtificalBrain:OnStart()
 
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
-        },.5)
+        },.2)
 		
 		-- Behave slightly different half way through dusk
 		local dusk2 = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() and HasValidHome(self.inst) end, "IsDusk2",
@@ -1117,6 +1214,13 @@ function ArtificalBrain:OnStart()
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
 			-- Always run away from these things
 			RunAway(self.inst, ShouldRunAway, 4, 8),
+			RunAway(self.inst,"TryingToKillUs",3,8),
+			-- Try to stay healthy
+			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal",
+				DoAction(self.inst,function() return ManageHealth(self.inst) end, "Manage Health", true)),
+			-- Try to stay sane
+			DoAction(self.inst,function() return ManageSanity(self.inst) end, "Manage Sanity", true),
+			-- Hunger is managed during the days/nights
 			day,
 			dusk,
 			dusk2,

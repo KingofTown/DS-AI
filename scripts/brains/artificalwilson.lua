@@ -184,7 +184,9 @@ local function BuildThis(player, thingToBuild, pos)
 			print("Trying to build " .. v.toMake)
 			while v.toMakeNum > 0 do 
 				if player.components.builder:CanBuild(v.toMake) then
-					player.components.builder:DoBuild(v.toMake)
+					--player.components.builder:DoBuild(v.toMake)
+					local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,v.toMake,nil)
+					inst:PushBufferedAction(action)
 					v.toMakeNum = v.toMakeNum - 1
 				else
 					print("Uhh...we can't make " .. v.toMake .. "!!!")
@@ -196,10 +198,19 @@ local function BuildThis(player, thingToBuild, pos)
 	
 	-- We should have everything we need
 	if player.components.builder:CanBuild(thingToBuild) then
-		player.components.builder:DoBuild(thingToBuild,pos)
+		--player.components.builder:DoBuild(thingToBuild,pos)
+		local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,thingToBuild,nil)
+		inst:PushBufferedAction(action)
 	else
 		print("Something is messed up. We can't make " .. thingToBuild .. "!!!")
 	end
+end
+
+-- Finds things we can prototype and does it.
+-- TODO, should probably get a prototype order list somewhere...
+local function PrototypeStuff(inst)
+
+
 end
 
 -- Returns a point somewhere near thing at a distance dist
@@ -412,13 +423,17 @@ local function FindValidHome(inst)
 			local machinePos = GetPointNearThing(inst,3)		
 			if machinePos ~= nil then
 				print("Found a valid place to build a science machine")
-				inst.components.builder:DoBuild("researchlab",machinePos)
-				-- This will push an event to set our home location
-				-- If we can, make a firepit too
-				if inst.components.builder:CanBuild("firepit") then
-					local pitPos = GetPointNearThing(inst,6)
-					inst.components.builder:DoBuild("firepit",pitPos)
-				end
+				--return SetupBufferedAction(inst, BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil))
+				local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil)
+				inst:PushBufferedAction(action)
+			
+			--	inst.components.builder:DoBuild("researchlab",machinePos)
+			--	-- This will push an event to set our home location
+			--	-- If we can, make a firepit too
+			--	if inst.components.builder:CanBuild("firepit") then
+			--		local pitPos = GetPointNearThing(inst,6)
+			--		inst.components.builder:DoBuild("firepit",pitPos)
+			--	end
 			else
 				print("Could not find a place for a science machine")
 			end
@@ -562,7 +577,9 @@ local function FindTreeOrRockAction(inst, action, continue)
 			end
 			
 			if thingToBuild and inst.components.builder and inst.components.builder:CanBuild(thingToBuild) then
-				inst.components.builder:DoBuild(thingToBuild)
+				--inst.components.builder:DoBuild(thingToBuild)
+				local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,thingToBuild,nil)
+				inst:PushBufferedAction(action)
 				inst:AddTag("DoingLongAction")
 				currentTreeOrRock = target
 			else
@@ -977,7 +994,9 @@ local function MakeLightSource(inst)
 			print("Don't want to build campfire too close")
 			pos = GetPointNearThing(burnable,3)
 		end
-		inst.components.builder:DoBuild("campfire",pos)
+		--inst.components.builder:DoBuild("campfire",pos)
+		local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,"campfire",nil)
+		inst:PushBufferedAction(action)
 		return
 	end
 	
@@ -987,7 +1006,9 @@ local function MakeLightSource(inst)
 	if not haveTorch then
 		-- Need to make one!
 		if inst.components.builder:CanBuild("torch") then
-			inst.components.builder:DoBuild("torch")
+			--inst.components.builder:DoBuild("torch")
+			local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,"torch",nil)
+			inst:PushBufferedAction(action)
 		end
 	end
 	-- Find it again
@@ -1016,7 +1037,9 @@ local function MakeTorchAndKeepRunning(inst)
 	if not haveTorch then
 		-- Need to make one!
 		if inst.components.builder:CanBuild("torch") then
-			inst.components.builder:DoBuild("torch")
+			--inst.components.builder:DoBuild("torch")
+			local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,"torch",nil)
+			inst:PushBufferedAction(action)
 		end
 	end
 	-- Find it again

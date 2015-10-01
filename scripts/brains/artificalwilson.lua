@@ -20,7 +20,19 @@ local CurrentSearchDistance = MIN_SEARCH_DISTANCE
 -- Stuff to be collected should follow the priority of the build order
 -- Have things to build once, build many times, etc
 -- Denote if we should always keep spare items (to build fire, etc)
-local BUILD_PRIORITY = {}
+local BUILD_PRIORITY = {
+		"axe",
+		"pickaxe",
+		"rope",
+		"boards",
+		"cutstone",
+		"papyrus",
+		"spear",
+		"footballhat",
+		"backpack",
+		"treasurechest",
+		"armorwood",
+}
 
 
 
@@ -81,21 +93,36 @@ end
 -- Can add/remove from list whenever
 local IGNORE_LIST = {}
 local function OnIgnoreList(prefab)
+	if not prefab then return false end
 	return IGNORE_LIST[prefab] ~= nil
 end
 
 local function AddToIgnoreList(prefab)
+	if not prefab then return end
+	
 	print("Adding " .. tostring(prefab) .. " to the ignore list")
 	IGNORE_LIST[prefab] = 1
 end
 
 local function RemoveFromIgnoreList(prefab)
+	if not prefab then return end
 	if OnIgnoreList(prefab) then
 		IGNORE_LIST[prefab] = nil
 	end
 end
 
 --------------------------------------------------------------------------------
+
+-- Copied straight from widgetutil.lua
+local function CanPrototypeRecipe(recipetree, buildertree)
+    for k,v in pairs(recipetree) do
+        if buildertree[tostring(k)] and recipetree[tostring(k)] and
+        recipetree[tostring(k)] > buildertree[tostring(k)] then
+                return false
+        end
+    end
+    return true
+end
 
 -- Makes sure we have the right tech level.
 -- If we don't have a resource, checks to see if we can craft it/them
@@ -122,9 +149,16 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 	end
 	
 	-- Quick check, do we know how to build this thing?
-	if not player.components.builder:KnowsRecipe(thingToBuild) then 
-		print("We don't know how to build " .. thingToBuild .. " :(")
-		return false 
+	if not player.components.builder:KnowsRecipe(thingToBuild) then
+		-- Check if we can prototype it 
+		print("We don't know how to build " .. thingToBuild)
+		local tech_level = player.components.builder.accessible_tech_trees
+		if not CanPrototypeRecipe(recipe.level, tech_level) then
+			print("...nor can we prototype it")
+			return false 
+		else
+			print("...but we can prototype it!")
+		end
 	end
 
 	-- For each ingredient, check to see if we have it. If not, see if it's creatable
@@ -177,6 +211,23 @@ local function BuildThis(player, thingToBuild, pos)
 	-- not a real thing
 	if not recipe then return end
 	
+	-- This should not be called without checking to see if we can build something
+	-- we have to unlock the recipe here. It is usually done with a mouse event when a player
+	-- goes to build something....so I assume if we got here, we can actually unlock the recipe
+	if not player.components.builder:KnowsRecipe(thingToBuild) then
+		player.components.builder:UnlockRecipe(thingToBuild)
+	end
+	
+	-- Don't run if we're still buffer building something else
+	if player.currentBufferedBuild ~= nil then
+		print("Not building " .. thingToBuild .. " as we are still building " .. player.currentBufferedBuild)
+		return
+	end
+	
+	-- Save this. We'll catch the 'buildfinished' event and if it is this, we'll remove it.
+	-- Will also remove it in watchdog
+	player.currentBufferedBuild = thingToBuild
+	
 	for k,v in pairs(itemsNeeded) do print(k,v) end
 	
 	-- TODO: Make sure we have the inventory space! 
@@ -193,6 +244,7 @@ local function BuildThis(player, thingToBuild, pos)
 					v.toMakeNum = v.toMakeNum - 1
 				else
 					print("Uhh...we can't make " .. v.toMake .. "!!!")
+					player.currentBufferedBuild = nil
 					return
 				end
 			end
@@ -206,14 +258,39 @@ local function BuildThis(player, thingToBuild, pos)
 		player:PushBufferedAction(action)
 	else
 		print("Something is messed up. We can't make " .. thingToBuild .. "!!!")
+		player.currentBufferedBuild = nil
 	end
 end
 
 -- Finds things we can prototype and does it.
 -- TODO, should probably get a prototype order list somewhere...
+
 local function PrototypeStuff(inst)
+	local prototyper = inst.components.builder.current_prototyper;
+	if not prototyper then
+		print("Not near a machine :(")
+		return
+	end
+	print("Standing next to " .. prototyper.prefab .. " ...what can I build...")
+	
+	local tech_level = inst.components.builder.accessible_tech_trees
 
-
+	
+	for k,v in pairs(BUILD_PRIORITY) do
+		-- Looking for things we can prototype
+		local recipe = GetRecipe(v)
+		
+		if not inst.components.builder:KnowsRecipe(v) then
+			print("Don't know how to build " .. v)
+			-- Will check our inventory for all items needed to build this
+			if CanIBuildThis(inst,v) and CanPrototypeRecipe(recipe.level,tech_level) then
+				-- Will push the buffered event to build this thing
+				BuildThis(inst,v)
+				return
+			end
+		end
+	end
+	
 end
 
 -- Returns a point somewhere near thing at a distance dist
@@ -409,17 +486,24 @@ local function GetHomePos(inst)
     return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
 end
 
+
 local function AtHome(inst)
 	-- Am I close enough to my home position?
 	if not HasValidHome(inst) then return false end
 	local dist = inst:GetDistanceSqToPoint(GetHomePos(inst))
-	return dist < 10
+	-- TODO: See if I'm next to a science machine
+	--inst.components.builder.current_prototyper ~= nil
+
+	return dist <= TUNING.RESEARCH_MACHINE_DIST
 end
 
 -- Should keep track of what we build so we don't have to keep checking. 
-local function ListenForScienceMachine(inst,data)
+local function ListenForBuild(inst,data)
 	if data and data.item.prefab == "researchlab" then
 		inst.components.homeseeker:SetHome(data.item)
+	elseif data and inst.currentBufferedBuild and data.item.prefab == inst.currentBufferedBuild then
+		print("Finished buliding " .. data.item.prefab)
+		inst.currentBufferedBuild = nil
 	end
 end
 
@@ -1123,7 +1207,8 @@ function ArtificalBrain:OnStop()
 	print("Stopping the brain!")
 	self.inst:RemoveEventCallback("actionDone",ActionDone)
 	self.inst:RemoveEventCallback("finishedwork", OnFinishedWork)
-	self.inst:RemoveEventCallback("buildstructure", ListenForScienceMachine)
+	self.inst:RemoveEventCallback("buildstructure", ListenForBuild)
+	self.inst:RemoveEventCallback("builditem",ListenForBuild)
 	self.inst:RemoveEventCallback("attacked", OnHitFcn)
 	self.inst:RemoveTag("DoingLongAction")
 	self.inst:RemoveTag("DoingAction")
@@ -1134,7 +1219,8 @@ function ArtificalBrain:OnStart()
 	
 	self.inst:ListenForEvent("actionDone",ActionDone)
 	self.inst:ListenForEvent("finishedwork", OnFinishedWork)
-	self.inst:ListenForEvent("buildstructure", ListenForScienceMachine)
+	self.inst:ListenForEvent("buildstructure", ListenForBuild)
+	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
 	
 	-- TODO: Make this a brain function so we can manage it dynamically
@@ -1337,7 +1423,7 @@ function ArtificalBrain:OnStart()
 			
 			-- Prototype things whenever we get a chance
 			-- Home is defined as our science machine...
-			IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) end, "atHome", 
+			IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) and not self.inst.currentBufferedBuild end, "atHome", 
 				DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
 				
 			-- Always fight back or run. Don't just stand there like a tool

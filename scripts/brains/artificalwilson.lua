@@ -254,11 +254,13 @@ local function ActionDone(self, data)
 		self.currentAction=nil
 	end
 
-	if state and state == "watchdog" then
-		print("Watchdog triggered on action " .. self.currentBufferedAction:__tostring())
+	if state and state == "watchdog" and theAction.action.id == self.currentBufferedAction.action.id then
+		print("Watchdog triggered on action " .. theAction:__tostring())
 		self:RemoveTag("DoingLongAction")
 		self:AddTag("IsStuck")
 		-- Really should remove this entity from being selected again. It will just live on forever
+	elseif state and state == "watchdog" and theAction.action.id ~= self.currentBufferedAction.action.id then
+		print("Ignoring watchdog for old action")
 	end
 	
 	self:RemoveTag("DoingAction")
@@ -592,6 +594,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 				inst:PushBufferedAction(action)
 				inst:AddTag("DoingLongAction")
 				currentTreeOrRock = target
+				return SetupBufferedAction(inst,BufferedAction(inst, target, action))
 			else
 				--addRecipeToGatherList(thingToBuild,false)
 			end
@@ -778,7 +781,7 @@ end
 -- Things to pretty much always run away from
 -- TODO: Make this a dynamic list
 local function ShouldRunAway(guy)
-	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard")
+	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile")
 end
 
 -- Under these conditions, fight back. Else, run away
@@ -1183,6 +1186,14 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE, false) end, "mineRock", true)),
 				
+				
+			--WhileNode(function() return not IsBusy(self.inst) end, "notBusy_doSomething",
+			--	RandomNode{
+			--		DoAction(self.inst, function() return FindResourceOnGround(self.inst) end, "pickup_ground", true ),
+			--		DoAction(self.inst, function() return FindResourceToHarvest(self.inst) end, "harvest", true ),
+			--		DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.CHOP, false) end, "chopTree", true),
+			--		DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE, false) end, "mineRock", true)}),
+				
 			-- Can't find anything to do...increase search distance
 			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
 				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
@@ -1305,6 +1316,8 @@ function ArtificalBrain:OnStart()
 			-- When hit, determine if we should fight this thing or not
 			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
 				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
+				
+			
 				
 			-- Always run away from these things
 			RunAway(self.inst, ShouldRunAway, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),

@@ -85,6 +85,7 @@ local function OnIgnoreList(prefab)
 end
 
 local function AddToIgnoreList(prefab)
+	print("Adding " .. tostring(prefab) .. " to the ignore list")
 	IGNORE_LIST[prefab] = 1
 end
 
@@ -258,6 +259,9 @@ local function ActionDone(self, data)
 		print("Watchdog triggered on action " .. theAction:__tostring())
 		self:RemoveTag("DoingLongAction")
 		self:AddTag("IsStuck")
+		if theAction.target then
+			AddToIgnoreList(theAction.target.entity:GetGUID()) -- Add this GUID to the ignore list
+		end
 		-- Really should remove this entity from being selected again. It will just live on forever
 	elseif state and state == "watchdog" and theAction.action.id ~= self.currentBufferedAction.action.id then
 		print("Ignoring watchdog for old action")
@@ -538,6 +542,8 @@ local function FindTreeOrRockAction(inst, action, continue)
 			
 			-- TODO: Put ignored prefabs
 			if OnIgnoreList(item.prefab) then return false end
+			-- We will ignore some things forever
+			if OnIgnoreList(item.entity:GetGUID()) then return false end
 			
 			-- Skip this if it only drops stuff we are full of
 			-- TODO, get the lootdroper rather than knowing what prefab it is...
@@ -590,11 +596,8 @@ local function FindTreeOrRockAction(inst, action, continue)
 			
 			if thingToBuild and inst.components.builder and inst.components.builder:CanBuild(thingToBuild) then
 				--inst.components.builder:DoBuild(thingToBuild)
-				local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,thingToBuild,nil)
-				inst:PushBufferedAction(action)
-				inst:AddTag("DoingLongAction")
-				currentTreeOrRock = target
-				return SetupBufferedAction(inst,BufferedAction(inst, target, action))
+				local buildAction = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,thingToBuild,nil)
+				inst:PushBufferedAction(buildAction)
 			else
 				--addRecipeToGatherList(thingToBuild,false)
 			end
@@ -617,9 +620,12 @@ local function FindResourceToHarvest(inst)
 						-- If we have some of this product, it will override the isFull check
 						local haveItem = inst.components.inventory:FindItem(function(invItem) return theProductPrefab == invItem.prefab end)
 						
-						if OnIgnoreList(item.components.pickable.product) or item:HasTag("TempTagForStuck") then
+						if OnIgnoreList(item.components.pickable.product) then
 							return false
 						end
+						-- This entity is to be ignored
+						if OnIgnoreList(item.entity:GetGUID()) then return false end
+						
 						-- Check to see if we have a full stack of this item
 						local theProduct = inst.components.inventory:FindItem(function(item) return (item.prefab == theProductPrefab) end)
 						if theProduct then
@@ -672,9 +678,9 @@ local function FindResourceOnGround(inst)
 							-- Ignore this unless it fits in a stack
 							not (inst.components.inventory:IsFull() and haveItem == nil) and
 							not OnIgnoreList(item.prefab) and
+							not OnIgnoreList(item.entity:GetGUID()) and
 							not item:HasTag("prey") and
-							not item:HasTag("bird") and
-							not item:HasTag("TempTagForStuck") then
+							not item:HasTag("bird") then
 								return true
 						end
 					end)
@@ -1345,6 +1351,13 @@ function ArtificalBrain:OnStart()
         }, .5)
     
     self.bt = BT(self.inst, root)
+	
+	self.printDebugInfo = function(self)
+		print("Items on ignore list:")
+		for k,v in pairs(IGNORE_LIST) do 
+			print(k,v)
+		end
+	end
 
 end
 

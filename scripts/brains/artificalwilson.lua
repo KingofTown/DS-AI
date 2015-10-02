@@ -227,9 +227,7 @@ local function BuildThis(player, thingToBuild, pos)
 	-- Save this. We'll catch the 'buildfinished' event and if it is this, we'll remove it.
 	-- Will also remove it in watchdog
 	player.currentBufferedBuild = thingToBuild
-	
-	for k,v in pairs(itemsNeeded) do print(k,v) end
-	
+		
 	-- TODO: Make sure we have the inventory space! 
 	for k,v in pairs(itemsNeeded) do
 		-- Just go down the list. If level > 0, we need to build it
@@ -268,14 +266,13 @@ end
 local function PrototypeStuff(inst)
 	local prototyper = inst.components.builder.current_prototyper;
 	if not prototyper then
-		print("Not near a machine :(")
 		return
 	end
+	
 	print("Standing next to " .. prototyper.prefab .. " ...what can I build...")
 	
 	local tech_level = inst.components.builder.accessible_tech_trees
 
-	
 	for k,v in pairs(BUILD_PRIORITY) do
 		-- Looking for things we can prototype
 		local recipe = GetRecipe(v)
@@ -285,12 +282,12 @@ local function PrototypeStuff(inst)
 			-- Will check our inventory for all items needed to build this
 			if CanIBuildThis(inst,v) and CanPrototypeRecipe(recipe.level,tech_level) then
 				-- Will push the buffered event to build this thing
+				-- TODO: Add a position for non inventory items
 				BuildThis(inst,v)
 				return
 			end
 		end
 	end
-	
 end
 
 -- Returns a point somewhere near thing at a distance dist
@@ -403,11 +400,14 @@ local function ManageHealth(inst)
 	-- Don't waste time if over 75% health
 	if inst.components.health:GetPercent() > .75 then return end
 	
+	print("Manage Health")
+	
 	-- Do not try to do this while in combat
-	if inst:HasTag("FightBack") or inst.components.combat.target ~= nil then return end
+	-- Note: We shouldn't do this in combat as this is a lower priority
+	--if inst:HasTag("FightBack") or inst.components.combat.target ~= nil then return end
 	
 	-- Do not try to do this while running away
-	-- TODO
+	-- Note: Same as above. RunAway has a higher priority, so we shouldn't be doing this if fighting or running.
 	
 	local healthMissing = inst.components.health:GetMaxHealth() - inst.components.health.currenthealth
 	
@@ -871,7 +871,149 @@ end
 -- Things to pretty much always run away from
 -- TODO: Make this a dynamic list
 local function ShouldRunAway(guy)
-	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile")
+	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or guy:HasTag("scarytoprey")
+end
+
+local function GoForTheEyes(inst)
+--[[
+1) Find the closest hostile mob close to me (within 30?)
+	1.5) Maintain a 'do not engage' type list? 
+2) Find all like mobs around that one (or maybe just all 'hostile' mobs around it)
+3) Calculate damage per second they are capabable of doing to me
+4) Calculate how long it will take me to kill with my current weapon and their health
+5) Engage if under some threshold
+--]]
+
+	local closestHostile = GetClosestInstWithTag("hostile", inst, 20)
+	
+	-- No hostile...nothing to do
+	if not closestHostile then return false end
+	
+	-- If this is on the do not engage list...run the F away!
+	-- TODO!
+	
+	local hostilePos = Vector3(closestHostile.Transform:GetWorldPosition())
+		
+	-- This should include the closest
+	local allHostiles = TheSim:FindEntities(hostilePos.x,hostilePos.y,hostilePos.z,6,{"hostile"})
+	
+	
+	-- Get my highest damage weapon I have or can make
+	local allWeaponsInInventory = inst.components.inventory:FindItems(function(item) return 
+										item.components.weapon and item.components.equippable and item.components.weapon.damage > 0 end)
+										
+	local highestDamageWeapon = nil										
+	-- The above does not count equipped weapons 
+	local equipped = inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
+	
+	if equipped and equipped.components.weapon and equipped.components.weapon.damage > 0 then
+		highestDamageWeapon = equipped
+	end
+
+	for k,v in pairs(allWeaponsInInventory) do
+		if highestDamageWeapon == nil then
+			highestDamageWeapon = v
+		else
+			if v.components.weapon.damage > highestDamageWeapon.components.weapon.damage then
+				highestDamageWeapon = v
+			end
+		end
+	end
+	
+	-- TODO: Consider an axe or pickaxe a valid weapon if we are under attack already! 
+	--       The spear condition is only if we are going to actively hunt something.
+	
+	-- We don't have a weapon...can we make one? 
+	-- TODO: What do we try to make? Only seeing if we can make a spear here as I don't consider an axe or 
+	--       a pickaxe a valid weapon. Should probably excluce
+	if highestDamageWeapon == nil or (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) then
+		if not CanIBuildThis(inst,"spear") and inst.components.combat.target == nil then
+			print("I don't have a good weapon and cannot make one")
+			return false
+		elseif highestDamageWeapon ~= nil and inst.components.combat.target then
+			print("I'll use what I've got!")
+		end
+	end
+	
+	-- TODO: Calculate our best armor.
+	
+	-- Collect some stats about this group of dingdongs
+	
+	local totalHealth=0
+	local totalWeaponSwings = 0
+
+	-- dpsTable is ordered like so:
+	--{ [min_attack_period] = sum_of_all_at_this_period,
+	--  [min_attack_period_2] = ...
+	--}
+	-- We can calculate how much damage we'll take by summing the entire table, then adding up to the min_attack_period
+	
+	-- If they are in cooldown, do not add to damage_on_first_attack. This number is the damage taken at zero time assuming
+	-- all mobs are going to hit at the exact same time.
+	
+	-- TODO: Get mob attack range and calculate how long until they are in range to attack for better estimate
+	
+	
+	local dpsTable = {}
+	local damage_on_first_attack = 0
+	for k,v in pairs(allHostiles) do
+		local a = v.components.combat.min_attack_period
+		dpsTable[a] = (dpsTable[a] and dpsTable[a] or 0) + v.components.combat.defaultdamage
+		
+		-- If a mob is ready to attack, add this to the damage taken when entering combat
+		-- (even though they probably wont attack right away)
+		if not v.components.combat:InCooldown() then
+			damage_on_first_attack = damage_on_first_attack + v.components.combat.defaultdamage
+		end
+
+		totalHealth = totalHealth + v.components.health.currenthealth -- TODO: Apply damage reduction if any
+		totalWeaponSwings = totalWeaponSwings + math.ceil(v.components.health.currenthealth / highestDamageWeapon.components.weapon.damage)
+	end
+	
+
+	
+	print("Total Health of all mobs around me: " .. tostring(totalHealth))
+	print("It will take " .. tostring(totalWeaponSwings) .. " swings of my weapon to kill them all")
+	print("It takes " .. tostring(inst.components.combat.min_attack_period) .. " seconds to swing")
+	
+	-- Now, determine if we are going to engage. If so, equip a weapon and charge!
+	
+	-- How long will it take me to swing x times?
+	-- If we aren't in cooldown, we can swing right away. Else, we need to add our current min_attack_period to the calc.
+	--      yes, we could find the exact amount of time left for cooldown, but this will be a safe estimate
+	local inCooldown = inst.components.combat:InCooldown() and 0 or 1
+	
+	local timeToKill = (totalWeaponSwings-inCooldown) * inst.components.combat.min_attack_period
+	
+	
+	table.sort(dpsTable)
+	
+	local damageTakenInT = damage_on_first_attack
+	for k,v in pairs(dpsTable) do
+		if k <= timeToKill then
+			damageTakenInT = damageTakenInT + v
+		end
+	end
+	
+	print("It will take " .. tostring(timeToKill) .. " seconds to kill the mob. We'll take about " .. tostring(damageTakenInT) .. " damage")
+	
+	local ch = inst.components.health.currenthealth
+	-- TODO: Make this a threshold
+	if (ch - damageTakenInT > 50) then
+	
+		-- Just compare prefabs...we might have duplicates. no point in swapping
+		if not equipped or (equipped and (equipped.prefab ~= highestDamageWeapon.prefab)) then
+			inst.components.inventory:Equip(highestDamageWeapon)
+		end
+		
+		-- TODO: Make armor first and equip it if possible!
+		
+		-- Set this guy as our target
+		inst.components.combat:SetTarget(closestHostile)
+		return true
+		
+	end
+	
 end
 
 -- Under these conditions, fight back. Else, run away
@@ -1014,7 +1156,7 @@ local function IsNearLightSource(inst)
 	local source = GetClosestInstWithTag("lightsource", inst, 20)
 	if source then
 		local dsq = inst:GetDistanceSqToInst(source)
-		if dsq > 8 then
+		if dsq > 25 then
 			print("It's too far away!")
 			return false 
 		end
@@ -1401,15 +1543,24 @@ function ArtificalBrain:OnStart()
 			--WhileNode(function() local ret = self.inst:HasTag("Stuck") self.inst:RemoveTag("Stuck") return ret end, "Stuck", Panic(self.inst)),
 			IfNode( function() return self.inst:HasTag("IsStuck") end, "stuck",
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
+				
+			-- If we ever get something in our overflow slot in the inventory, drop it.
+			IfNode(function() return self.inst.components.inventory.activeitem ~= nil end, "drop_activeItem",
+				DoAction(self.inst,function() self.inst.components.inventory:DropActiveItem() end, "drop",true)),
 			
 			-- Quit standing in the fire, idiot
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
 			
 			-- When hit, determine if we should fight this thing or not
-			IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
-				DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
+			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
+			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
 				
-			
+			-- New Combat function. 
+			-- GoForTheEyes will set our combat target. If it returns true, kill
+			-- TODO: Don't do this at night.
+			WhileNode(function() return GoForTheEyes(self.inst) end, "GoForTheEyes", 
+				ChaseAndAttack(self.inst, 10,30)),
+			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),
 				
 			-- Always run away from these things
 			RunAway(self.inst, ShouldRunAway, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),

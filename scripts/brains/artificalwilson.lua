@@ -506,6 +506,13 @@ end
 -- Put sanity things on top of list when sanity is low
 local function ManageSanity(inst)
 
+	-- Quit picking up flowers all the damn time
+	if inst.components.sanity:GetPercent() < .9 and OnIgnoreList("petals") then
+		RemoveFromIgnoreList("petals")
+	elseif inst.components.sanity:GetPercent() > .9 and not OnIgnoreList("petals") then
+		AddToIgnoreList("petals")
+	end
+	
 	-- TODO!!!
 	if true then 
 		return

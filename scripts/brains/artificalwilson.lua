@@ -1495,6 +1495,7 @@ function ArtificalBrain:OnStart()
 	AddToIgnoreList("tallbirdegg")
 	AddToIgnoreList("pinecone")
 	AddToIgnoreList("red_cap")
+	AddToIgnoreList("ash")
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
 	if not HasValidHome(self.inst) then

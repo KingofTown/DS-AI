@@ -12,8 +12,8 @@ require "behaviours/leash"
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
 local SEARCH_SIZE_STEP = 10
-local RUN_AWAY_SEE_DIST = 6
-local RUN_AWAY_STOP_DIST = 12
+local RUN_AWAY_SEE_DIST = 5
+local RUN_AWAY_STOP_DIST = 10
 local CurrentSearchDistance = MIN_SEARCH_DISTANCE
 
 -- The order in which we prioritize things to build
@@ -227,6 +227,15 @@ local function BuildThis(player, thingToBuild, pos)
 	-- Save this. We'll catch the 'buildfinished' event and if it is this, we'll remove it.
 	-- Will also remove it in watchdog
 	player.currentBufferedBuild = thingToBuild
+	
+	-- TOSO: Make sure the pos supplied is valid place to build this thing. If not, get a new one.
+	--if pos ~= nil then
+	--	local maxLoops = 5
+	--	while not player.components.builder:CanBuildAtPoint(pos,thingToBuild) and maxLoops > 0 then
+	--		local offset,result_angle,deflected = FindWalkableOffset(pos, angle,radius,8,true,false)
+	--		maxLoops = maxLoops - 1
+	--	end
+	--end
 		
 	-- TODO: Make sure we have the inventory space! 
 	for k,v in pairs(itemsNeeded) do
@@ -354,10 +363,12 @@ end
 -- Adds our custom success and fail callback to a buffered action
 -- actionNumber is for a watchdog node
 
-local MAX_TIME_FOR_ACTION_SECONDS = 10
-local function SetupBufferedAction(inst, action)
+local function SetupBufferedAction(inst, action, timeout)
+	if timeout == nil then 
+		timeout = CurrentSearchDistance 
+	end
 	inst:AddTag("DoingAction")
-	inst.currentAction = inst:DoTaskInTime((CurrentSearchDistance/2)+3,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
+	inst.currentAction = inst:DoTaskInTime((CurrentSearchDistance*.75)+3,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
 	inst.currentBufferedAction = action
 	action:AddSuccessAction(function() inst:PushEvent("actionDone",{theAction = action, state="success"}) end)
 	action:AddFailAction(function() inst:PushEvent("actionDone",{theAction = action, state="failed"}) end)
@@ -373,7 +384,7 @@ local function FindAndActivateTouchstone(inst)
 	local target = FindEntity(inst, 25, function(item) return item.components.resurrector and 
 									item.components.activatable and item.components.activatable.inactive end)
 	if target then
-		return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.ACTIVATE))
+		return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.ACTIVATE),5)
 	end
 
 end
@@ -399,9 +410,7 @@ local function ManageHealth(inst)
 	end
 	-- Don't waste time if over 75% health
 	if inst.components.health:GetPercent() > .75 then return end
-	
-	print("Manage Health")
-	
+		
 	-- Do not try to do this while in combat
 	-- Note: We shouldn't do this in combat as this is a lower priority
 	--if inst:HasTag("FightBack") or inst.components.combat.target ~= nil then return end
@@ -435,7 +444,7 @@ local function ManageHealth(inst)
 	end
 	
 	if bestFood then
-		return SetupBufferedAction(inst,BufferedAction(inst,bestFood,ACTIONS.EAT))
+		return SetupBufferedAction(inst,BufferedAction(inst,bestFood,ACTIONS.EAT),3)
 	end
 	
 	-- Out of food. Do we have any other healing items?
@@ -453,7 +462,7 @@ local function ManageHealth(inst)
 	
 	if bestHealthItem then
 		print("Healing with " .. bestHealthItem.prefab)
-		return SetupBufferedAction(inst,BufferedAction(inst,inst,ACTIONS.HEAL,bestHealthItem))
+		return SetupBufferedAction(inst,BufferedAction(inst,inst,ACTIONS.HEAL,bestHealthItem),3)
 	end
 	
 	-- Got this far...we're out of stuff. Add stuff to the priority list!
@@ -543,6 +552,32 @@ local function FindValidHome(inst)
 end
 
 ---------------------------------------------------------------------------
+-- Run away
+
+-- Things to pretty much always run away from
+-- TODO: Make this a dynamic list
+local function ShouldRunAway(guy)
+	-- Wilson apparently gets scared by his own shadow
+	if guy:HasTag("player") then return false end
+	
+	-- Angry worker bees don't have the special tag...so check to see if it's spring
+	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
+	if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
+		return true
+	end
+	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
+		guy:HasTag("scarytoprey") or guy:HasTag("frog")
+end
+
+-- Returns true if there is anything that we should run away from is near inst
+local function HostileMobNearInst(inst)
+	local pos = inst.Transform:GetWorldPosition()
+	if pos then
+		return FindEntity(inst,RUN_AWAY_SEE_DIST,function(guy) return ShouldRunAway(guy) end) ~= nil
+	end
+	return false
+end
+
 -- Gather stuff
 
 local function IncreaseSearchDistance()
@@ -552,6 +587,18 @@ end
 
 local function ResetSearchDistance()
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
+end
+
+-- Find somewhere interesting to go to
+local function FindSomewhereNewToGo(inst)
+	-- Cheating for now. Find the closest wormhole and go there. Wilson will start running
+	-- then his brain will kick in and he'll hopefully find something else to do
+	local wormhole = FindEntity(inst,200,function(thing) return thing.prefab and thing.prefab == "wormhole" end)
+	if wormhole then
+		print("Found a wormhole!")
+		inst.components.locomotor:GoToEntity(wormhole,nil,true)
+		ResetSearchDistance()
+	end
 end
 
 
@@ -603,7 +650,7 @@ local function FindTreeOrRockAction(inst, action, continue)
 		else 
 			inst:AddTag("DoingLongAction")
 			print("Continue long action")
-			return SetupBufferedAction(inst,BufferedAction(inst, currentTreeOrRock, currentTreeOrRock.components.workable.action))
+			return SetupBufferedAction(inst,BufferedAction(inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
 		end
 		
 	else
@@ -628,6 +675,11 @@ local function FindTreeOrRockAction(inst, action, continue)
 			if OnIgnoreList(item.prefab) then return false end
 			-- We will ignore some things forever
 			if OnIgnoreList(item.entity:GetGUID()) then return false end
+			-- Don't go near things with hostile dudes
+			if HostileMobNearInst(item) then
+				print("Ignoring " .. item.prefab .. " as there is something spooky by it")
+				return false 
+			end
 			
 			-- Skip this if it only drops stuff we are full of
 			-- TODO, get the lootdroper rather than knowing what prefab it is...
@@ -665,10 +717,12 @@ local function FindTreeOrRockAction(inst, action, continue)
 			if not alreadyEquipped then
 				inst.components.inventory:Equip(axe)
 			end
-			ResetSearchDistance()
+			-- Get this before we reset it
+			local timeout = CurrentSearchDistance
 			currentTreeOrRock = target
 			inst:AddTag("DoingLongAction")
-			return SetupBufferedAction(inst,BufferedAction(inst, target, action))
+			ResetSearchDistance()
+			return SetupBufferedAction(inst,BufferedAction(inst, target, action,axe),timeout)
 			-- Craft one if we can
 		else
 			local thingToBuild = nil
@@ -710,6 +764,11 @@ local function FindResourceToHarvest(inst)
 						-- This entity is to be ignored
 						if OnIgnoreList(item.entity:GetGUID()) then return false end
 						
+						if HostileMobNearInst(item) then 
+							print("Ignoring " .. item.prefab .. " as there is a monster by it")
+							return false 
+						end
+						
 						-- Check to see if we have a full stack of this item
 						local theProduct = inst.components.inventory:FindItem(function(item) return (item.prefab == theProductPrefab) end)
 						if theProduct then
@@ -725,8 +784,9 @@ local function FindResourceToHarvest(inst)
 				end)
 
 		if target then
+			local timeout = CurrentSearchDistance
 			ResetSearchDistance()
-			return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.PICK))
+			return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.PICK),timeout)
 		end
 	--end
 end
@@ -752,6 +812,12 @@ local function FindResourceOnGround(inst)
 						if item.prefab and string.find(item.prefab, "trinket") then return false end
 						-- We won't need these thing either.
 						if item.prefab and string.find(item.prefab, "teleportato") then return false end
+						
+						-- Ignore things near scary dudes
+						if HostileMobNearInst(item) then 
+							print("Ignoring " .. item.prefab .. " as there is something scary near it")
+							return false 
+						end
 			
 						if item.components.inventoryitem and 
 							item.components.inventoryitem.canbepickedup and 
@@ -769,8 +835,9 @@ local function FindResourceOnGround(inst)
 						end
 					end)
 	if target then
+		local timeout = CurrentSearchDistance
 		ResetSearchDistance()
-		return SetupBufferedAction(inst,BufferedAction(inst, target, ACTIONS.PICKUP))
+		return SetupBufferedAction(inst,BufferedAction(inst, target, ACTIONS.PICKUP),timeout)
 	end
 
 end
@@ -868,12 +935,6 @@ end
 ---------------------------------------------------------------------------------
 -- COMBAT
 
--- Things to pretty much always run away from
--- TODO: Make this a dynamic list
-local function ShouldRunAway(guy)
-	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or guy:HasTag("scarytoprey")
-end
-
 local function GoForTheEyes(inst)
 --[[
 1) Find the closest hostile mob close to me (within 30?)
@@ -895,7 +956,7 @@ local function GoForTheEyes(inst)
 	local hostilePos = Vector3(closestHostile.Transform:GetWorldPosition())
 		
 	-- This should include the closest
-	local allHostiles = TheSim:FindEntities(hostilePos.x,hostilePos.y,hostilePos.z,6,{"hostile"})
+	local allHostiles = TheSim:FindEntities(hostilePos.x,hostilePos.y,hostilePos.z,5,{"hostile"})
 	
 	
 	-- Get my highest damage weapon I have or can make
@@ -928,6 +989,10 @@ local function GoForTheEyes(inst)
 	--       a pickaxe a valid weapon. Should probably excluce
 	if highestDamageWeapon == nil or (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) then
 		if not CanIBuildThis(inst,"spear") and inst.components.combat.target == nil then
+			-- TODO: Rather than checking to see if we have a combat target, should make
+			--       sure the closest hostile is X away so we have time to craft one.
+			--       What I do not want is to just keep trying to make one while being attacked.
+			--       Returning false here means we'll run away.
 			print("I don't have a good weapon and cannot make one")
 			return false
 		elseif highestDamageWeapon ~= nil and inst.components.combat.target then
@@ -1232,11 +1297,12 @@ local function MakeLightSource(inst)
 	-- No firepit (or no fuel). Can we make one?
 	if inst.components.builder:CanBuild("campfire") then
 		-- Don't build one too close to burnable things. 
+		-- TODO: This should be a while loop until we find a valid spot
 		local burnable = GetClosestInstWithTag("burnable",inst,3)
 		local pos = nil
 		if burnable then
 			print("Don't want to build campfire too close")
-			pos = GetPointNearThing(burnable,3)
+			pos = GetPointNearThing(burnable,6)
 		end
 		--inst.components.builder:DoBuild("campfire",pos)
 		local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,"campfire",nil)
@@ -1332,7 +1398,7 @@ end
 local function MidwayThroughDusk()
 	local clock = GetClock()
 	local startTime = clock:GetDuskTime()
-	return clock:IsDusk() and (clock:GetTimeLeftInEra() < startTime/4)
+	return clock:IsDusk() and (clock:GetTimeLeftInEra() < startTime/2)
 end
 
 local function IsBusy(inst)
@@ -1420,17 +1486,13 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE, false) end, "mineRock", true)),
 				
-				
-			--WhileNode(function() return not IsBusy(self.inst) end, "notBusy_doSomething",
-			--	RandomNode{
-			--		DoAction(self.inst, function() return FindResourceOnGround(self.inst) end, "pickup_ground", true ),
-			--		DoAction(self.inst, function() return FindResourceToHarvest(self.inst) end, "harvest", true ),
-			--		DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.CHOP, false) end, "chopTree", true),
-			--		DoAction(self.inst, function() return FindTreeOrRockAction(self.inst, ACTIONS.MINE, false) end, "mineRock", true)}),
-				
 			-- Can't find anything to do...increase search distance
 			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
 				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+				
+			-- TODO: Need a good wander function for when searchdistance is at max.
+			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
+				DoAction(self.inst, function() return FindSomewhereNewToGo(self.inst) end, "lookingForSomewhere", true)),
 				
 
 			-- No plan...just walking around

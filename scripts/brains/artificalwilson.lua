@@ -211,12 +211,16 @@ local function BuildThis(player, thingToBuild, pos)
 	-- not a real thing
 	if not recipe then return end
 	
+	print("BuildThis called with " .. thingToBuild)
+	
 	-- This should not be called without checking to see if we can build something
 	-- we have to unlock the recipe here. It is usually done with a mouse event when a player
 	-- goes to build something....so I assume if we got here, we can actually unlock the recipe
-	if not player.components.builder:KnowsRecipe(thingToBuild) then
-		player.components.builder:UnlockRecipe(thingToBuild)
-	end
+	-- Actually, Do this in the callback so we don't unlock it unless successful
+	--if not player.components.builder:KnowsRecipe(thingToBuild) then
+	--	print("Unlocking recipe")
+	--	player.components.builder:UnlockRecipe(thingToBuild)
+	--end
 	
 	-- Don't run if we're still buffer building something else
 	if player.currentBufferedBuild ~= nil then
@@ -228,7 +232,7 @@ local function BuildThis(player, thingToBuild, pos)
 	-- Will also remove it in watchdog
 	player.currentBufferedBuild = thingToBuild
 	
-	-- TOSO: Make sure the pos supplied is valid place to build this thing. If not, get a new one.
+	-- TODO: Make sure the pos supplied is valid place to build this thing. If not, get a new one.
 	--if pos ~= nil then
 	--	local maxLoops = 5
 	--	while not player.components.builder:CanBuildAtPoint(pos,thingToBuild) and maxLoops > 0 then
@@ -236,6 +240,17 @@ local function BuildThis(player, thingToBuild, pos)
 	--		maxLoops = maxLoops - 1
 	--	end
 	--end
+	
+	-- Called back from the MakeRecipe function...will unlock the recipe if successful
+	local onsuccess = function()
+		player.components.builder:UnlockRecipe(thingToBuild)
+	end
+	
+	if #itemsNeeded == 0 then
+		print("itemsNeeded is empty!")
+	end
+	
+	for k,v in pairs(itemsNeeded) do print(k,v) end
 		
 	-- TODO: Make sure we have the inventory space! 
 	for k,v in pairs(itemsNeeded) do
@@ -245,9 +260,11 @@ local function BuildThis(player, thingToBuild, pos)
 			print("Trying to build " .. v.toMake)
 			while v.toMakeNum > 0 do 
 				if player.components.builder:CanBuild(v.toMake) then
-					--player.components.builder:DoBuild(v.toMake)
-					local action = BufferedAction(player,player,ACTIONS.BUILD,nil,pos,v.toMake,nil)
+
+					local action = BufferedAction(player,nil,ACTIONS.BUILD,nil,pos,v.toMake,nil)
 					player:PushBufferedAction(action)
+					--player.components.locomotor:PushAction(action)
+					--player.components.builder:MakeRecipe(GetRecipe(v.toMake),pos,onsuccess)
 					v.toMakeNum = v.toMakeNum - 1
 				else
 					print("Uhh...we can't make " .. v.toMake .. "!!!")
@@ -258,23 +275,39 @@ local function BuildThis(player, thingToBuild, pos)
 		end
 	end
 	
-	-- We should have everything we need
+	--[[
+	if player.components.builder:MakeRecipe(GetRecipe(thingToBuild),pos,onsuccess) then
+		print("MakeRecipe succeeded")
+	else
+		print("Something is messed up. MakeRecipe failed!")
+		player.currentBufferedBuild = nil
+	end
+	--]]
+	
+
 	if player.components.builder:CanBuild(thingToBuild) then
-		--player.components.builder:DoBuild(thingToBuild,pos)
+		print("We have all the ingredients...time to make " .. thingToBuild)
+
 		local action = BufferedAction(player,player,ACTIONS.BUILD,nil,pos,thingToBuild,nil)
+		print("Pushing action to build " .. thingToBuild)
+		print(action:__tostring())
+		--player.components.builder:MakeRecipe(thingToBuild,pos,onsuccess)
 		player:PushBufferedAction(action)
 	else
 		print("Something is messed up. We can't make " .. thingToBuild .. "!!!")
 		player.currentBufferedBuild = nil
 	end
+
 end
 
 -- Finds things we can prototype and does it.
 -- TODO, should probably get a prototype order list somewhere...
 
 local function PrototypeStuff(inst)
+	print("PrototypeStuff")
 	local prototyper = inst.components.builder.current_prototyper;
 	if not prototyper then
+		print("Not by a science machine...nothing to do")
 		return
 	end
 	
@@ -473,6 +506,18 @@ end
 -- Put sanity things on top of list when sanity is low
 local function ManageSanity(inst)
 
+	-- TODO!!!
+	if true then 
+		return
+	end
+	
+	if inst.components.sanity:GetPercent() > .75 then return end
+	local sanityMissing = inst.components.sanity:GetMaxSanity() - inst.components.sanity.current
+	
+	local sanityFood = inst.components.inventory:FindItems(function(item) return inst.components.eater:CanEat(item) 
+																	and item.components.edible:GetSanity(inst) > 0 end)
+	
+	
 end
 
 
@@ -501,7 +546,7 @@ local function AtHome(inst)
 	if not HasValidHome(inst) then return false end
 	local dist = inst:GetDistanceSqToPoint(GetHomePos(inst))
 	-- TODO: See if I'm next to a science machine
-	--inst.components.builder.current_prototyper ~= nil
+	--return inst.components.builder.current_prototyper ~= nil
 
 	return dist <= TUNING.RESEARCH_MACHINE_DIST
 end
@@ -511,8 +556,14 @@ local function ListenForBuild(inst,data)
 	if data and data.item.prefab == "researchlab" then
 		inst.components.homeseeker:SetHome(data.item)
 	elseif data and inst.currentBufferedBuild and data.item.prefab == inst.currentBufferedBuild then
-		print("Finished buliding " .. data.item.prefab)
+		print("Finished building " .. data.item.prefab)
 		inst.currentBufferedBuild = nil
+	end
+	
+	-- In all cases, unlock the recipe as we apparently knew how to build this
+	if not inst.components.builder:KnowsRecipe(data.item.prefab) then
+		print("Unlocking recipe")
+		inst.components.builder:UnlockRecipe(data.item.prefab)
 	end
 end
 
@@ -558,7 +609,10 @@ end
 -- TODO: Make this a dynamic list
 local function ShouldRunAway(guy)
 	-- Wilson apparently gets scared by his own shadow
-	if guy:HasTag("player") then return false end
+	-- Also, don't get scared of chester too...
+	if guy:HasTag("player") or guy:HasTag("companion") then 
+		return false 
+	end
 	
 	-- Angry worker bees don't have the special tag...so check to see if it's spring
 	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
@@ -1000,6 +1054,8 @@ local function GoForTheEyes(inst)
 		end
 	end
 	
+	if highestDamageWeapon == nil then return false end
+	
 	-- TODO: Calculate our best armor.
 	
 	-- Collect some stats about this group of dingdongs
@@ -1437,6 +1493,8 @@ function ArtificalBrain:OnStart()
 	AddToIgnoreList("marsh_tree")
 	AddToIgnoreList("marsh_bush")
 	AddToIgnoreList("tallbirdegg")
+	AddToIgnoreList("pinecone")
+	AddToIgnoreList("red_cap")
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
 	if not HasValidHome(self.inst) then

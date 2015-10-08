@@ -355,6 +355,7 @@ end)
 -- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
 -- is scheduled and this callback will be triggered on both success and failure to denote 
 -- we are done with that action
+local actionNumber = 0
 local function ActionDone(self, data)
 	local state = data.state
 	local theAction = data.theAction
@@ -371,14 +372,22 @@ local function ActionDone(self, data)
 		self.currentAction=nil
 	end
 
+	-- If we're stuck on the same action (we've never pushed any new actions)...then fix it
 	if state and state == "watchdog" and theAction.action.id == self.currentBufferedAction.action.id then
 		print("Watchdog triggered on action " .. theAction:__tostring())
+		if data.actionNum == actionNumber then 
+			print("We're stuck on the same action!") 
+		else
+			print("We've queued more actions since then...")
+		end
 		self:RemoveTag("DoingLongAction")
 		self:AddTag("IsStuck")
+		-- What about calling
+		-- inst:ClearBufferedAction() ??? Maybe this will work
+		-- Though, if we're just running in place, this won't fix that as we're probably trying to walk over a river
 		if theAction.target then
 			AddToIgnoreList(theAction.target.entity:GetGUID()) -- Add this GUID to the ignore list
 		end
-		-- Really should remove this entity from being selected again. It will just live on forever
 	elseif state and state == "watchdog" and theAction.action.id ~= self.currentBufferedAction.action.id then
 		print("Ignoring watchdog for old action")
 	end
@@ -401,11 +410,12 @@ local function SetupBufferedAction(inst, action, timeout)
 		timeout = CurrentSearchDistance 
 	end
 	inst:AddTag("DoingAction")
-	inst.currentAction = inst:DoTaskInTime((CurrentSearchDistance*.75)+3,function() ActionDone(inst, {theAction = action, state="watchdog"}) end)
+	inst.currentAction = inst:DoTaskInTime((CurrentSearchDistance*.75)+3,function() ActionDone(inst, {theAction = action, state="watchdog", actionNum=actionNumber}) end)
 	inst.currentBufferedAction = action
 	action:AddSuccessAction(function() inst:PushEvent("actionDone",{theAction = action, state="success"}) end)
 	action:AddFailAction(function() inst:PushEvent("actionDone",{theAction = action, state="failed"}) end)
 	print(action:__tostring())
+	actionNumber = actionNumber + 1
 	return action	
 end
 
@@ -696,9 +706,11 @@ end
 
 local function FindTreeOrRockAction(inst, action, continue)
 
-	if inst.sg:HasStateTag("busy") then
-		return
-	end
+    --if inst.sg:HasStateTag("prechop") then
+    --    return 
+    --end
+	if continue then print("Continue find tree action!") print(inst.sg) end
+
 
 	-- We are currently chopping down a tree (or mining a rock). If it's still there...don't stop
 	if continue and currentTreeOrRock ~= nil and inst:HasTag("DoingLongAction") then
@@ -712,12 +724,20 @@ local function FindTreeOrRockAction(inst, action, continue)
 			inst:AddTag("DoingLongAction")
 			print("Continue long action")
 			return SetupBufferedAction(inst,BufferedAction(inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
+			--local action = SetupBufferedAction(inst,BufferedAction(inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
+			--inst.components.locomotor:PushAction(action,true,false)
+			--return true
 		end
 		
 	else
 		--print("Not doing long action")
 		inst:RemoveTag("DoingLongAction")
 		currentTreeOrRock = nil
+		-- If we came in from a continue node...don't find a new tree, that would be silly.
+		if continue then 
+			print("The tree has fallen. Not continuing")
+			return 
+		end
 	end
 	
 	-- Do we need logs? (always)
@@ -1304,7 +1324,29 @@ local function IsNearLightSource(inst)
 end
 
 local function MakeLightSource(inst)
+	
+	if inst:HasTag("DoingAction") then 
+		print("Currently doing an action....lets hope it's building a fire...wilson")
+		local theAction = inst:GetBufferedAction()
+		if theAction then
+			print(theAction:__tostring())
+			if theAction.action ~= ACTIONS.BUILD then
+				print("uhh, shit shit, what am I doing?!?")
+				-- Cancel this action!
+				-- This should push the fail, which triggers onfail which removes the
+				-- DoingAction tag we have set
+				inst:ClearBufferedAction()
+			end
+		else
+			-- Ummm, we don't have anything buffered. That's not good. Clear the tag
+			inst:RemoveTag("DoingAction")
+		end
+		
+		-- In all of the above cases, return true so we come right back to this node
+		return true
+	end
 	-- If there is one nearby, move to it
+	
 	print("Need to make light!")
 	local source = GetClosestInstWithTag("lightsource", inst, 30)
 	if source then
@@ -1318,8 +1360,9 @@ local function MakeLightSource(inst)
 		end
 		
 		local parent = source.entity:GetParent()
-		if parent and not parent.components.fueled then	
-			return 		
+		if parent and not parent.components.fueled then
+			-- Found a light source...and it doesn't need fuel. All is good.
+			return true
 		end
 
 	end
@@ -1329,7 +1372,8 @@ local function MakeLightSource(inst)
 	if firepit then
 		-- It's got fuel...nothing to do
 		if firepit.components.fueled:GetPercent() > .25 then 
-			return
+			-- Return false so we do stuff past this node
+			return false
 		end
 		
 		-- Find some fuel in our inventory to add
@@ -1343,18 +1387,27 @@ local function MakeLightSource(inst)
 		for k,v in pairs(allFuelInInv) do
 			-- TODO: This is a bit hackey...but really, logs are #1
 			if v.prefab == "log" then
-				return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, v)
+				inst:PushBufferedAction(BufferedAction(inst, firepit, ACTIONS.ADDFUEL, v))
+				-- Return true to come back here and make sure all is good
+				return true
 			else
 				bestFuel = v
 			end
 		end
 		-- Don't add this stuff unless the fire is really sad
 		if bestFuel and firepit.components.fueled:GetPercent() < .15 then
-			return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, bestFuel)
+			--return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, bestFuel)
+			inst:PushBufferedAction(inst,firepit,ACTIONS.ADDFUEL,bestFuel)
+			-- Return true to come back here and make sure all is still good
+			return true
 		end
 		
 		-- We don't have enough fuel. Let it burn longer before executing backup plan
-		if firepit.components.fueled:GetPercent() > .1 then return end
+		if firepit.components.fueled:GetPercent() > .1 then 
+			-- Return false to let the brain continue to other actions rather than
+			-- to keep checking
+			return false 
+		end
 	end
 	
 	-- No firepit (or no fuel). Can we make one?
@@ -1365,12 +1418,16 @@ local function MakeLightSource(inst)
 		local pos = nil
 		if burnable then
 			print("Don't want to build campfire too close")
-			pos = GetPointNearThing(burnable,6)
+			pos = GetPointNearThing(burnable,4)
 		end
 		--inst.components.builder:DoBuild("campfire",pos)
-		local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,pos,"campfire",nil)
-		inst:PushBufferedAction(action)
-		return
+		-- Do a buffered action here to attach the onsuccess and onfail listeners
+		local action = SetupBufferedAction(inst,BufferedAction(inst,nil,ACTIONS.BUILD,nil,pos,"campfire",nil,1))
+		-- Need to push this to the locomotor so we walk to the right position
+		print("pushing locomotor action");
+		inst.components.locomotor:PushAction(action, true);
+		--inst:PushBufferedAction(action)
+		return true
 	end
 	
 	-- Can't make a campfire...torch it is (hopefully)
@@ -1388,7 +1445,8 @@ local function MakeLightSource(inst)
 	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
 	if haveTorch then
 		inst.components.inventory:Equip(haveTorch)
-		return
+		
+		return true
 	end
 	
 	-- Uhhh....we couldn't add fuel and we didn't have a torch. Find fireflys? 
@@ -1401,7 +1459,11 @@ local function MakeLightSource(inst)
 		end
 	else
 		print("So...this is how I die")
+		return true
 	end
+	
+	-- Return true so we come back to this node ASAP!
+	return true
 
 end
 
@@ -1524,10 +1586,17 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
 			--WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
 			--	ChaseAndAttack(self.inst,20)),
+			--DoAction(self.inst, function() print("a") end, "printSG", true),
+			
+			--WhileNode( function() return currentTreeOrRock ~= nil and (self.inst.sg:HasStateTag("chopping") or self.inst.sg:HasStateTag("prechop") )end, "keepGoing",
+			--	DoAction(self.inst, function() FindTreeOrRockAction(self.inst,nil,true) end, "continueAction",true)),
+			
+			-- Try it with an action node
+			--IfNode(function() print("IfNode")return currentTreeOrRock ~= nil and (self.inst.sg:HasStateTag("chopping") or self.inst.sg:HasStateTag("prechop")) end, "continueLongAction",
+			--	ActionNode(function() print("ActionNode")return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction")),
 			
 			-- If we started doing a long action, keep doing that action
 			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) 	),
 			
 			-- Make sure we eat
@@ -1563,7 +1632,7 @@ function ArtificalBrain:OnStart()
 
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
-		},.5)
+		},.25)
 		
 
 	-- Do this stuff the first half of duck (or all of dusk if we don't have a home yet)
@@ -1643,8 +1712,10 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst, function() return MakeTorchAndKeepRunning(self.inst) end, "make torch", true)),
 				
 			-- Must be near light! 	
-			IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
-				DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
+			--IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
+			--	DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
+			IfNode(function() return not IsNearLightSource(self.inst) end, "no light!!!",
+				ConditionNode(function() return MakeLightSource(self.inst) end, "making light")),
 				
 			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
 				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
@@ -1713,7 +1784,7 @@ function ArtificalBrain:OnStart()
 			dusk2,
 			night
 
-        }, .5)
+        }, .25)
     
     self.bt = BT(self.inst, root)
 	

@@ -10,6 +10,7 @@ require "behaviours/chattynode"
 require "behaviours/leash"
 require "behaviours/managehunger"
 require "behaviours/managehealth"
+require "behaviours/findandactivate"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -334,8 +335,6 @@ local ArtificalBrain = Class(Brain, function(self, inst)
     Brain._ctor(self,inst)
 end)
 
--- We will never gather stuff as long as its in this list.
--- Can add/remove from list whenever
 local IGNORE_LIST = {}
 function ArtificalBrain:OnIgnoreList(prefab)
 	if not prefab then return false end
@@ -424,17 +423,8 @@ local function SetupBufferedAction(inst, action, timeout)
 end
 
 --------------------------------------------------------------------------------
--- MISC one time stuff (activate things)
 
-local function FindAndActivateTouchstone(inst)
-	
-	local target = FindEntity(inst, 25, function(item) return item.components.resurrector and 
-									item.components.activatable and item.components.activatable.inactive end)
-	if target then
-		return SetupBufferedAction(inst,BufferedAction(inst,target,ACTIONS.ACTIVATE),5)
-	end
 
-end
 
 -----------------------------------------------------------------------
 -- Inventory Management
@@ -1454,8 +1444,8 @@ function ArtificalBrain:OnStart()
 			ManageHunger(self.inst, .5),
 				
 			-- If there's a touchstone nearby, activate it
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
-				DoAction(self.inst,function() return FindAndActivateTouchstone(self.inst) end, "findTouchstone", true)),
+			IfNode(function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
+				FindAndActivate(self.inst, 25, "resurrectionstone")),
 			
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",

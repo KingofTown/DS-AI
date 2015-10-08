@@ -8,6 +8,7 @@ require "behaviours/findlight"
 require "behaviours/panic"
 require "behaviours/chattynode"
 require "behaviours/leash"
+require "behaviours/managehunger"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -924,96 +925,6 @@ local function FindResourceOnGround(inst)
 end
 
 -----------------------------------------------------------------------
--- Eating and stuff
-local function HaveASnack(inst)
-		
-	-- Check inventory for food. 
-	-- If we have none, set the priority item to find to food (TODO)
-	local allFoodInInventory = inst.components.inventory:FindItems(function(item) return 
-									inst.components.eater:CanEat(item) and 
-									item.components.edible:GetHunger(inst) > 0 and
-									item.components.edible:GetHealth(inst) >= 0 and
-									item.components.edible:GetSanity(inst) >= 0 end)
-	
-	
-	
-	local bestFoodToEat = nil
-	for k,v in pairs(allFoodInInventory) do
-		if bestFoodToEat == nil then
-			bestFoodToEat = v
-		else
-			print("Comparing " .. v.prefab .. " to " .. bestFoodToEat.prefab)
-			if v.components.edible:GetHunger(inst) >= bestFoodToEat.components.edible:GetHunger(inst) then
-				print(v.prefab .. " gives more hunger!")
-				-- If it's tied, order by perishable percentage
-				local newWillPerish = v.components.perishable
-				local curWillPerish = bestFoodToEat.components.perishable
-				if newWillPerish and not curWillPerish then
-					print("...and will perish")
-					bestFoodToEat = v
-				elseif newWillPerish and curWillPerish and newWillPerish:GetPercent() < curWillPerish:GetPercent() then
-					print("...and will perish sooner")
-					bestFoodToEat = v
-				else
-					print("...but " .. bestFoodToEat.prefab .. " will spoil sooner so not changing")
-					-- Keep the original...it will go stale before this one. 
-				end
-			else
-				-- The new food will provide less hunger. Only consider this if it is close to going stale or going
-				-- really bad
-				if v.components.perishable then
-					-- Stale happens at .5, so we'll get things between .5 and .6
-					if v.components.perishable:IsFresh() and v.components.perishable:GetPercent() < .6 then
-						print(v.prefab .. " isn't better...but is close to going stale")
-						bestFoodToEat = v
-					-- Likewise, next phase is at .2, so get things between .2 and .3
-					elseif v.components.perishable:IsStale() and v.components.perishable:GetPercent() < .3 then
-						print(v.prefab .. " isn't better...but is close to going bad")
-						bestFoodToEat = v
-					end
-				end
-			end
-		end
-	end
-	
-	if bestFoodToEat then 
-		return SetupBufferedAction(inst,BufferedAction(inst,bestFoodToEat,ACTIONS.EAT))
-	end
-	
-	-- We didn't find anything good. Check food that might hurt us if we are real hungry
-	if inst.components.hunger:GetPercent() > .15 then 
-		return 
-	end
-	print("We're too hungry. Check emergency reserves!")
-	
-	allFoodInInventory = inst.components.inventory:FindItems(function(item) return 
-									inst.components.eater:CanEat(item) and 
-									item.components.edible:GetHunger(inst) > 0 and
-									item.components.edible:GetHealth(inst) < 0 end)
-									
-	for k,v in pairs(allFoodInInventory) do
-		local health = v.components.edible:GetHealth(inst)
-		if not bestFoodToEat and health > inst.components.health.currenthealth then 
-			bestFoodToEat = v
-		elseif bestFoodToEat and health > inst.components.health.currenthealth then
-			if v.components.edible:GetHunger(inst) > bestFoodToEat.components.edible:GetHunger(inst) and 
-				health <= bestFoodToEat.components.edible:GetHealth(inst) and
-				health > inst.components.health.currenthealth then
-					bestFoodToEat = v
-			end
-		end
-	end
-	
-	if bestFoodToEat then 
-		return SetupBufferedAction(inst,BufferedAction(inst,bestFoodToEat,ACTIONS.EAT))
-	end
-	
-	
-	-- TODO:
-	-- We didn't find antying to eat and we're hungry. Set our priority to finding food!
-
-end
----------------------------------------------------------------------------------
 -- COMBAT
 
 local function GoForTheEyes(inst)
@@ -1600,8 +1511,12 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true) 	),
 			
 			-- Make sure we eat
-			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
-				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			--IfNode(function() return not IsBusy(self.inst) and self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+			
+			-- Eat something if hunger gets below .5
+			ManageHunger(self.inst, .5),
 				
 			-- If there's a touchstone nearby, activate it
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
@@ -1651,8 +1566,9 @@ function ArtificalBrain:OnStart()
 					DoAction(self.inst, function() return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction", true)	),
 			
 			-- Make sure we eat
-			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
-				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			ManageHunger(self.inst,.5),
 			
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
@@ -1681,8 +1597,9 @@ function ArtificalBrain:OnStart()
 		local dusk2 = WhileNode( function() return clock and clock:IsDusk() and MidwayThroughDusk() and HasValidHome(self.inst) end, "IsDusk2",
 			PriorityNode{
 			
-			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
-				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
+			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			ManageHunger(self.inst,.5),
 
 			IfNode( function() return HasValidHome(self.inst) end, "try to go home",
 				DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
@@ -1721,8 +1638,9 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
 			
 			-- Eat more at night
-			IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .9 end, "notBusy_hungry",
-				DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .9 end, "notBusy_hungry",
+			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
+			ManageHunger(self.inst,.9),
             
         },.5)
 		

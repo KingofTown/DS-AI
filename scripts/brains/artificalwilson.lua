@@ -9,6 +9,7 @@ require "behaviours/panic"
 require "behaviours/chattynode"
 require "behaviours/leash"
 require "behaviours/managehunger"
+require "behaviours/managehealth"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -444,73 +445,6 @@ end
 -- etc
 local function ManageInventory(inst)
 
-end
-
--- Eat health restoring food
--- Put health items on top of priority list when health is low
-local function ManageHealth(inst)
-	if inst.sg:HasStateTag("busy") then
-		return
-	end
-	-- Don't waste time if over 75% health
-	if inst.components.health:GetPercent() > .75 then return end
-		
-	-- Do not try to do this while in combat
-	-- Note: We shouldn't do this in combat as this is a lower priority
-	--if inst:HasTag("FightBack") or inst.components.combat.target ~= nil then return end
-	
-	-- Do not try to do this while running away
-	-- Note: Same as above. RunAway has a higher priority, so we shouldn't be doing this if fighting or running.
-	
-	local healthMissing = inst.components.health:GetMaxHealth() - inst.components.health.currenthealth
-	
-	-- Do we have edible food? 
-	local bestFood = nil
-	-- If we have food that restores health, eat it
-	local healthFood = inst.components.inventory:FindItems(function(item) return inst.components.eater:CanEat(item) and item.components.edible:GetHealth(inst) > 0 end)
-	
-	-- Find the best food that doesn't go over and eat that.
-	-- TODO: Sort by staleness
-	for k,v in pairs(healthFood) do
-		local h = v.components.edible:GetHealth(inst)
-		-- Only consider foods that heal for less than hunger if we are REALLY hurting
-		local z = v.components.edible:GetHunger(inst)
-		
-		-- h > z, this item is better used as healing
-		-- or heals for more than 5 and we are really hurting
-		if h > z or (h <= z and  h >= 5 and inst.components.health:GetPercent() < .2) then
-			if h <= healthMissing then
-				if not bestFood or (bestFood and bestFood.components.edible:GetHealth(inst) < h) then
-					bestFood = v
-				end
-			end
-		end
-	end
-	
-	if bestFood then
-		return SetupBufferedAction(inst,BufferedAction(inst,bestFood,ACTIONS.EAT),3)
-	end
-	
-	-- Out of food. Do we have any other healing items?
-	local healthItems = inst.components.inventory:FindItems(function(item) return item.components.healer end)
-	
-	local bestHealthItem = nil
-	for k,v in pairs(healthItems) do 
-		local h = v.components.healer.health
-		if h <= healthMissing then
-			if not bestHealthItem or (bestHealthItem and bestHealthItem.components.healer.health < h) then
-				bestHealthItem = v
-			end
-		end
-	end
-	
-	if bestHealthItem then
-		print("Healing with " .. bestHealthItem.prefab)
-		return SetupBufferedAction(inst,BufferedAction(inst,inst,ACTIONS.HEAL,bestHealthItem),3)
-	end
-	
-	-- Got this far...we're out of stuff. Add stuff to the priority list!
-	-- TODO!!!
 end
 
 -- Eat sanity restoring food
@@ -1683,10 +1617,11 @@ function ArtificalBrain:OnStart()
 			RunAway(self.inst, ShouldRunAway, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
 
 			-- Try to stay healthy
-			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal",
-				DoAction(self.inst,function() return ManageHealth(self.inst) end, "Manage Health", true)),
+			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal", 
+				ManageHealth(self.inst,.75)),
 			-- Try to stay sane
 			DoAction(self.inst,function() return ManageSanity(self.inst) end, "Manage Sanity", true),
+			
 			-- Hunger is managed during the days/nights
 			
 			-- Prototype things whenever we get a chance

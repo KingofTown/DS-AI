@@ -11,6 +11,7 @@ require "behaviours/leash"
 require "behaviours/managehunger"
 require "behaviours/managehealth"
 require "behaviours/findandactivate"
+require "behaviours/findresourceonground"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -335,6 +336,8 @@ local ArtificalBrain = Class(Brain, function(self, inst)
     Brain._ctor(self,inst)
 end)
 
+-- Helper functions to be used by behaviour nodes
+
 local IGNORE_LIST = {}
 function ArtificalBrain:OnIgnoreList(prefab)
 	if not prefab then return false end
@@ -343,7 +346,6 @@ end
 
 function ArtificalBrain:AddToIgnoreList(prefab)
 	if not prefab then return end
-	
 	print("Adding " .. tostring(prefab) .. " to the ignore list")
 	IGNORE_LIST[prefab] = 1
 end
@@ -353,6 +355,40 @@ function ArtificalBrain:RemoveFromIgnoreList(prefab)
 	if self:OnIgnoreList(prefab) then
 		IGNORE_LIST[prefab] = nil
 	end
+end
+
+-- Just copied the function. Other one will go away soon.
+function ArtificalBrain:HostileMobNearInst(inst)
+	local pos = inst.Transform:GetWorldPosition()
+	if pos then
+		return FindEntity(inst,RUN_AWAY_SEE_DIST,function(guy) return self:ShouldRunAway(guy) end) ~= nil
+	end
+	return false
+end
+
+function ArtificalBrain:ShouldRunAway(guy)
+	-- Wilson apparently gets scared by his own shadow
+	-- Also, don't get scared of chester too...
+	if guy:HasTag("player") or guy:HasTag("companion") then 
+		return false 
+	end
+	
+	-- Angry worker bees don't have any special tag...so check to see if it's spring
+	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
+	if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
+		return true
+	end
+	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
+		guy:HasTag("scarytoprey") or guy:HasTag("frog")
+end
+
+function ArtificalBrain:IncreaseSearchDistance()
+	print("IncreaseSearchDistance")
+	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
+end
+
+function ArtificalBrain:ResetSearchDistance()
+	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
 -- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
@@ -800,7 +836,7 @@ end
 
 -- Do an expanding search. Look for things close first.
 
-local function FindResourceOnGround(brain)
+local function OldFindResourceOnGround(brain)
 	--print("FindResourceOnGround")
 
 	-- TODO: Only have up to 1 stack of the thing (modify the findentity fcn)
@@ -1452,8 +1488,11 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
 			-- Collect stuff
+			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
+			--	DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),	
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-				DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),			
+				FindResourceOnGround(self.inst, CurrentSearchDistance)),
+				
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
 				DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
@@ -1478,14 +1517,7 @@ function ArtificalBrain:OnStart()
 	-- Do this stuff the first half of duck (or all of dusk if we don't have a home yet)
 	local dusk = WhileNode( function() return clock and clock:IsDusk() and (not MidwayThroughDusk() or not HasValidHome(self.inst)) end, "IsDusk",
         PriorityNode{
-
-			-- Moved these to root
-			-- We've been attacked. Equip a weapon and fight back.
-			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
-			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
-			--WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-			--	ChaseAndAttack(self.inst,20)),
-			
+	
 			-- If we started doing a long action, keep doing that action
 			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
 					DoAction(self.inst, function() return FindTreeOrRockAction(self,nil,true) end, "continueAction", true)	),
@@ -1498,8 +1530,11 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
 			-- Harvest stuff
+			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
+			--	DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),	
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-				DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),		
+				FindResourceOnGround(self.inst, CurrentSearchDistance)),
+				
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP) end, "chopTree", true)),	
 				

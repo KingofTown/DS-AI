@@ -9,6 +9,7 @@ function FindResourceOnGround:OnFail()
     self.pendingstatus = FAILED
 end
 function FindResourceOnGround:OnSucceed()
+	print(self.action:__tostring() .. " complete!")
     self.pendingstatus = SUCCESS
 end
 
@@ -55,7 +56,7 @@ function FindResourceOnGround:Visit()
 		self.pendingstatus = nil
 		self.inst.components.locomotor:PushAction(action, true)
 		self.inst.brain:ResetSearchDistance()
-		self.status = SUCCESS
+		self.status = RUNNING
 		return
 	end
 	

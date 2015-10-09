@@ -12,6 +12,7 @@ require "behaviours/managehunger"
 require "behaviours/managehealth"
 require "behaviours/findandactivate"
 require "behaviours/findresourceonground"
+require "behaviours/findresourcetoharvest"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -787,7 +788,7 @@ local function FindTreeOrRockAction(brain, action, continue)
 end
 
 
-local function FindResourceToHarvest(brain)
+local function OldFindResourceToHarvest(brain)
 	--print("FindResourceToHarvest")
 	--if not brain.inst.components.inventory:IsFull() then
 		local target = FindEntity(brain.inst, CurrentSearchDistance, function(item)
@@ -1492,9 +1493,12 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),	
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
 				FindResourceOnGround(self.inst, CurrentSearchDistance)),
-				
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-				DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
+				FindResourceToHarvest(self.inst, CurrentSearchDistance)),
+				
+			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
+			--	DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
+			
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP, false) end, "chopTree", true)),
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
@@ -1538,8 +1542,11 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP) end, "chopTree", true)),	
 				
+			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
+			--	DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-				DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
+				FindResourceToHarvest(self.inst, CurrentSearchDistance)),
+				
 			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
 				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.MINE) end, "mineRock", true)),
 				
@@ -1573,7 +1580,7 @@ function ArtificalBrain:OnStart()
 				-- If we're home (or at our temp camp) start cooking some food.
 				
 				
-		},.5)
+		},.25)
 		
 	-- Things to do during the night
 	--[[

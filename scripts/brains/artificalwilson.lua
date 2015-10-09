@@ -382,12 +382,17 @@ function ArtificalBrain:ShouldRunAway(guy)
 		guy:HasTag("scarytoprey") or guy:HasTag("frog")
 end
 
+function ArtificalBrain:GetCurrentSearchDistance()
+	return CurrentSearchDistance
+end
+
 function ArtificalBrain:IncreaseSearchDistance()
 	print("IncreaseSearchDistance")
 	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
 end
 
 function ArtificalBrain:ResetSearchDistance()
+	print("ResetSearchDistance")
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
@@ -658,127 +663,6 @@ local function FindHighPriorityThings(inst)
 	-- Filter out stuff
 end
 
-
-
-local function OldFindTreeOrRockAction(brain, action, continue)
-
-    --if brain.inst.sg:HasStateTag("prechop") then
-    --    return 
-    --end
-	if continue then print("Continue find tree action!") print(brain.inst.sg) end
-
-
-	-- We are currently chopping down a tree (or mining a rock). If it's still there...don't stop
-	if continue and currentTreeOrRock ~= nil and brain.inst:HasTag("DoingLongAction") then
-		-- Assume the tool in our hand is still the correct one. If we aren't holding anything, we're done
-		local tool = brain.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-		if not tool or not tool.components.tool:CanDoAction(currentTreeOrRock.components.workable.action) then
-			print("We can't continue this action!")
-			currentTreeOrRock = nil
-			brain.inst:RemoveTag("DoingLongAction")
-		else 
-			brain.inst:AddTag("DoingLongAction")
-			print("Continue long action")
-			return SetupBufferedAction(brain.inst,BufferedAction(brain.inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
-			--local action = SetupBufferedAction(brain.inst,BufferedAction(brain.inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
-			--brain.inst.components.locomotor:PushAction(action,true,false)
-			--return true
-		end
-		
-	else
-		--print("Not doing long action")
-		brain.inst:RemoveTag("DoingLongAction")
-		currentTreeOrRock = nil
-		-- If we came in from a continue node...don't find a new tree, that would be silly.
-		if continue then 
-			print("The tree has fallen. Not continuing")
-			return 
-		end
-	end
-	
-	-- Do we need logs? (always)
-	-- Don't chop unless we need logs (this is hacky)
-	if action == ACTIONS.CHOP and brain.inst.components.inventory:Has("log",20) then
-		return
-	end
-
-	
-	-- TODO, this will find all mineable structures (ice, rocks, sinkhole)
-	local target = FindEntity(brain.inst, CurrentSearchDistance, function(item)
-			if not item.components.workable then return false end
-			if not item.components.workable:IsActionValid(action) then return false end
-			
-			-- TODO: Put ignored prefabs
-			if brain:OnIgnoreList(item.prefab) then return false end
-			-- We will ignore some things forever
-			if brain:OnIgnoreList(item.entity:GetGUID()) then return false end
-			-- Don't go near things with hostile dudes
-			if HostileMobNearInst(item) then
-				print("Ignoring " .. item.prefab .. " as there is something spooky by it")
-				return false 
-			end
-			
-			-- Skip this if it only drops stuff we are full of
-			-- TODO, get the lootdroper rather than knowing what prefab it is...
-			if item.prefab and item.prefab == "rock1" then
-				return not brain.inst.components.inventory:Has("flint",20)
-			elseif item.prefab and item.prefab == "rock2" then
-				return not brain.inst.components.inventory:Has("goldnugget",20)
-			elseif item.prefab and item.prefab == "rock_flintless" then
-				return not brain.inst.components.inventory:Has("rocks",40)
-			end
-
-			-- TODO: Determine if this is across water or something...
-			--local dist = brain.inst:GetDistanceSqToInst(item)
-			--if dist > (CurrentSearchDistance) then 
-			--	return false
-			--end
-			
-			-- Found one
-			return true
-	
-		end)
-	
-	if target then
-		local equiped = brain.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-		local alreadyEquipped = false
-		local axe = nil
-		if equiped and equiped.components.tool and equiped.components.tool:CanDoAction(action) then
-			axe = equiped
-			alreadyEquipped = true
-		else 
-			axe = brain.inst.components.inventory:FindItem(function(item) return item.components.equippable and item.components.tool and item.components.tool:CanDoAction(action) end)
-		end
-		-- We are holding an axe or have one in inventory. Let's chop
-		if axe then
-			if not alreadyEquipped then
-				brain.inst.components.inventory:Equip(axe)
-			end
-			-- Get this before we reset it
-			local timeout = CurrentSearchDistance
-			currentTreeOrRock = target
-			brain.inst:AddTag("DoingLongAction")
-			--ResetSearchDistance()
-			return SetupBufferedAction(brain.inst,BufferedAction(brain.inst, target, action,axe),timeout)
-			-- Craft one if we can
-		else
-			local thingToBuild = nil
-			if action == ACTIONS.CHOP then
-				thingToBuild = "axe"
-			elseif action == ACTIONS.MINE then
-				thingToBuild = "pickaxe"
-			end
-			
-			if thingToBuild and brain.inst.components.builder and brain.inst.components.builder:CanBuild(thingToBuild) then
-				--brain.inst.components.builder:DoBuild(thingToBuild)
-				local buildAction = BufferedAction(brain.inst,brain.inst,ACTIONS.BUILD,nil,nil,thingToBuild,nil)
-				brain.inst:PushBufferedAction(buildAction)
-			else
-				--addRecipeToGatherList(thingToBuild,false)
-			end
-		end
-	end
-end
 
 -----------------------------------------------------------------------
 -- COMBAT
@@ -1382,15 +1266,25 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
+			NotDecorator(ActionNode(function() print("CurrentSearchDistance: " .. tostring(CurrentSearchDistance)) end)),
 			-- Collect stuff
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-				FindResourceOnGround(self.inst, CurrentSearchDistance)),
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-				FindResourceToHarvest(self.inst, CurrentSearchDistance)),
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-				FindTreeOrRock(self.inst, CurrentSearchDistance, ACTIONS.CHOP)),
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-				FindTreeOrRock(self.inst, CurrentSearchDistance, ACTIONS.MINE)),
+			SelectorNode{
+
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
+					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
+					FindResourceToHarvest(self.inst, self.GetCurrentSearchDistance)),
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.MINE)),
+				
+					-- Finally, if none of those succeed, increase the search distance for
+					-- the next loop.
+					-- Want this to fail always so we don't increase to max.
+				IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
+					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),
+			},
 				
 			
 			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
@@ -1399,8 +1293,9 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.MINE, false) end, "mineRock", true)),
 				
 			-- Can't find anything to do...increase search distance
-			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
-				DoAction(self.inst, function() return self:IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+			--IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
+			--	NotDecorator(
+			--		ActionNode(function() return self:IncreaseSearchDistance() end))),
 				
 			-- TODO: Need a good wander function for when searchdistance is at max.
 			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
@@ -1427,23 +1322,27 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
-			-- Harvest stuff
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-				FindResourceOnGround(self.inst, CurrentSearchDistance)),
-				
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP) end, "chopTree", true)),	
-				
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-				FindResourceToHarvest(self.inst, CurrentSearchDistance)),
-				
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.MINE) end, "mineRock", true)),
-				
-			-- Can't find anything to do...increase search distance
-			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
-				DoAction(self.inst, function() return self:IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+			SelectorNode{
 
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
+					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
+					
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
+					
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
+					FindResourceToHarvest(self.inst, self.GetCurrentSearchDistance)),
+
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.MINE)),
+				
+				IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
+					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),
+			},
+			
+			-- This is super hacky.
+			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
+				DoAction(self.inst, function() return FindSomewhereNewToGo(self.inst) end, "lookingForSomewhere", true)),
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
         },.2)

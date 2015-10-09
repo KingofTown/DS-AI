@@ -1,7 +1,7 @@
-FindResourceOnGround = Class(BehaviourNode, function(self, inst, searchDistance)
+FindResourceOnGround = Class(BehaviourNode, function(self, inst, searchDistanceFn)
     BehaviourNode._ctor(self, "FindResourceOnGround")
     self.inst = inst
-	self.distance = searchDistance
+	self.distance = searchDistanceFn
 end)
 
 -- Returned from the ACTIONS.EAT
@@ -15,9 +15,9 @@ end
 
 
 function FindResourceOnGround:Visit()
-
+	--print("FindResourceOnGround:Visit() - " .. tostring(self.status))
     if self.status == READY then
-		local target = FindEntity(self.inst, self.distance, function(item)
+		local target = FindEntity(self.inst, self.distance(), function(item)
 						-- Do we have a slot for this already
 						local haveItem = self.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
 											

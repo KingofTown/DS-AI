@@ -1,7 +1,7 @@
-FindTreeOrRock = Class(BehaviourNode, function(self, inst, searchDistance, actionType)
+FindTreeOrRock = Class(BehaviourNode, function(self, inst, searchDistanceFn, actionType)
     BehaviourNode._ctor(self, "FindTreeOrRock")
     self.inst = inst
-	self.distance = searchDistance
+	self.distance = searchDistanceFn
 	self.actionType = actionType
 	self.currentTarget = nil
 	
@@ -25,11 +25,9 @@ end
 
 
 function FindTreeOrRock:SetupActionWithTool(target, tool)
-	self.inst.brain:ResetSearchDistance()
 	local action = BufferedAction(self.inst, target, self.actionType,tool)
 	self.action = action
 	self.inst.components.locomotor:PushAction(action, true)
-	self.inst.brain:ResetSearchDistance()
 end
 
 -- returns false if no tool 
@@ -56,7 +54,7 @@ end
 
 
 function FindTreeOrRock:Visit()
-
+	--print("FindTreeOrRock:Visit() - " .. tostring(self.status))
     if self.status == READY then
 		-- TODO: Get the loot table for these rather than this hacky hardcode
 		if self.actionType == ACTIONS.CHOP and self.inst.components.inventory:Has("log",20) then
@@ -64,7 +62,7 @@ function FindTreeOrRock:Visit()
 			return
 		end
 		
-	local target = FindEntity(self.inst, self.distance, function(item)
+	local target = FindEntity(self.inst, self.distance(), function(item)
 			if not item.components.workable then return false end
 			if not item.components.workable:IsActionValid(self.actionType) then return false end
 			
@@ -106,6 +104,7 @@ function FindTreeOrRock:Visit()
 			if haveRightTool then
 				self.currentTarget = target
 				self:SetupActionWithTool(target, tool)
+				self.inst.brain:ResetSearchDistance()
 				self.status = RUNNING
 				return
 			else
@@ -127,6 +126,7 @@ function FindTreeOrRock:Visit()
 					buildAction:AddFailAction(function() self:BuildFailed() end)
 					buildAction:AddSuccessAction(function() self:BuildSucceed() end)
 					self.inst:PushBufferedAction(buildAction)
+					self.inst.brain:ResetSearchDistance()
 					self.status = RUNNING
 				else
 					--addRecipeToGatherList(thingToBuild,false)

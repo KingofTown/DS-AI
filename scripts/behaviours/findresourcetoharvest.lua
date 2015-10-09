@@ -1,18 +1,21 @@
-FindResourceToHarvest = Class(BehaviourNode, function(self, inst, searchDistance)
+FindResourceToHarvest = Class(BehaviourNode, function(self, inst, searchDistanceFn)
     BehaviourNode._ctor(self, "FindResourceToHarvest")
     self.inst = inst
-	self.distance = searchDistance
+	self.distance = searchDistanceFn
 	
 	self.onpicked = function(inst, data)
 		print("picksomething returned")
 		self.pendingstatus = SUCCESS
 	end
 	
+	print("Adding picksomething listener")
 	self.inst:ListenForEvent("picksomething", self.onpicked)
 end)
 
 function FindResourceToHarvest:OnStop()
+	print("OnStop called")
     self.inst:RemoveEventCallback("picksomething", self.onpicked)
+	self.inst:RemoveTag("is_busy")
 end
 
 -- Returned from the ACTIONS.EAT
@@ -21,9 +24,9 @@ function FindResourceToHarvest:OnFail()
 end
 
 function FindResourceToHarvest:Visit()
-
+	--print("FindResourceToHarvest:Visit() - " .. tostring(self.status))
     if self.status == READY then
-		local target = FindEntity(self.inst, self.distance, function(item)
+		local target = FindEntity(self.inst, self.distance(), function(item)
 					
 					if item.components.pickable and item.components.pickable:CanBePicked() and item.components.pickable.caninteractwith then
 						local theProductPrefab = item.components.pickable.product

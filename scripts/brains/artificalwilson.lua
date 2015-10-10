@@ -357,6 +357,20 @@ function ArtificalBrain:RemoveFromIgnoreList(prefab)
 	end
 end
 
+-- Helpful function...just returns a point at a random angle 
+-- a distance dist away.
+function ArtificalBrain:GetPointNearThing(thing, dist)
+	local pos = Vector3(thing.Transform:GetWorldPosition())
+	if pos then
+		local theta = math.random() * 2 * PI
+		local radius = dist
+		local offset = FindWalkableOffset(pos, theta, radius, 12, true)
+		if offset then
+			return pos+offset
+		end
+	end
+end
+
 -- Just copied the function. Other one will go away soon.
 function ArtificalBrain:HostileMobNearInst(inst)
 	local pos = inst.Transform:GetWorldPosition()
@@ -396,9 +410,7 @@ function ArtificalBrain:ResetSearchDistance()
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
--- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
--- is scheduled and this callback will be triggered on both success and failure to denote 
--- we are done with that action
+
 local actionNumber = 0
 local function ActionDone(self, data)
 	local state = data.state
@@ -1229,31 +1241,6 @@ function ArtificalBrain:OnStart()
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
 		PriorityNode{
-			--RunAway(self.inst, "hostile", 15, 30),
-			-- We've been attacked. Equip a weapon and fight back.
-			
-			-- Moved these to root
-			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
-			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
-			--WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-			--	ChaseAndAttack(self.inst,20)),
-			--DoAction(self.inst, function() print("a") end, "printSG", true),
-			
-			--WhileNode( function() return currentTreeOrRock ~= nil and (self.inst.sg:HasStateTag("chopping") or self.inst.sg:HasStateTag("prechop") )end, "keepGoing",
-			--	DoAction(self.inst, function() FindTreeOrRockAction(self.inst,nil,true) end, "continueAction",true)),
-			
-			-- Try it with an action node
-			--IfNode(function() print("IfNode")return currentTreeOrRock ~= nil and (self.inst.sg:HasStateTag("chopping") or self.inst.sg:HasStateTag("prechop")) end, "continueLongAction",
-			--	ActionNode(function() print("ActionNode")return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction")),
-			
-			-- If we started doing a long action, keep doing that action
-			--WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-			--	DoAction(self.inst, function() return FindTreeOrRockAction(self,nil,true) end, "continueAction", true) 	),
-			
-			-- Make sure we eat
-			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
-			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
-			--IfNode(function() return not IsBusy(self.inst) and self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
 			
 			-- Eat something if hunger gets below .5
 			ManageHunger(self.inst, .5),
@@ -1266,7 +1253,6 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
-			NotDecorator(ActionNode(function() print("CurrentSearchDistance: " .. tostring(CurrentSearchDistance)) end)),
 			-- Collect stuff
 			SelectorNode{
 
@@ -1286,24 +1272,10 @@ function ArtificalBrain:OnStart()
 					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),
 			},
 				
-			
-			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-			--	DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP, false) end, "chopTree", true)),
-			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-			--	DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.MINE, false) end, "mineRock", true)),
-				
-			-- Can't find anything to do...increase search distance
-			--IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
-			--	NotDecorator(
-			--		ActionNode(function() return self:IncreaseSearchDistance() end))),
-				
 			-- TODO: Need a good wander function for when searchdistance is at max.
 			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
 				DoAction(self.inst, function() return FindSomewhereNewToGo(self.inst) end, "lookingForSomewhere", true)),
-				
 
-			-- No plan...just walking around
-			--Wander(self.inst, nil, 20),
 		},.25)
 		
 
@@ -1423,7 +1395,8 @@ function ArtificalBrain:OnStart()
 				
 			-- New Combat function. 
 			-- GoForTheEyes will set our combat target. If it returns true, kill
-			-- TODO: Don't do this at night.
+			-- TODO: Don't do this at night. He will run out into the darkness and override
+			--       his need to stay in the light!
 			WhileNode(function() return GoForTheEyes(self.inst) end, "GoForTheEyes", 
 				ChaseAndAttack(self.inst, 10,30)),
 			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),

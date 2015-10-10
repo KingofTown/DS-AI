@@ -3,24 +3,13 @@ FindResourceToHarvest = Class(BehaviourNode, function(self, inst, searchDistance
     self.inst = inst
 	self.distance = searchDistanceFn
 	
-	self.onpicked = function(inst, data)
-		print("picksomething returned")
-		self.pendingstatus = SUCCESS
-	end
-	
-	print("Adding picksomething listener")
-	self.inst:ListenForEvent("picksomething", self.onpicked)
 end)
 
-function FindResourceToHarvest:OnStop()
-	print("OnStop called")
-    self.inst:RemoveEventCallback("picksomething", self.onpicked)
-	self.inst:RemoveTag("is_busy")
-end
-
--- Returned from the ACTIONS.EAT
 function FindResourceToHarvest:OnFail()
     self.pendingstatus = FAILED
+end
+function FindResourceToHarvest:OnSucceed()
+	self.pendingstatus = SUCCESS
 end
 
 function FindResourceToHarvest:Visit()
@@ -65,6 +54,7 @@ function FindResourceToHarvest:Visit()
 		if target then
 			local action = BufferedAction(self.inst,target,ACTIONS.PICK)
 			action:AddFailAction(function() self:OnFail() end)
+			action:AddSuccessAction(function() self:OnSucceed() end)
 			self.action = action
 			self.pendingstatus = nil
 			self.inst.components.locomotor:PushAction(action, true)

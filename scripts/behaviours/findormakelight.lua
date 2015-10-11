@@ -14,6 +14,24 @@ function MaintainLightSource:OnActionSucceed()
 	self.pendingstatus = SUCCESS
 end
 
+-- Given a lightsource or a prefab, will return true if this is a valid light source
+local function IsValidLightSource(light)
+	local parent = light.entity:GetParent()
+	if parent ~= nil then
+		if parent.prefab == "firepit" or parent.prefab == "campfire" or parent.prefab == "torch" then
+			return true
+		end
+		return false
+	end
+	
+	-- Apparently torchfire doesn't have a parent. It is its own thing. It just follows the torch around lol.
+	if light.prefab and light.prefab == "firepit" or light.prefab == "campfire" or light.prefab == "torchfire" then 
+		return true 
+	end
+	
+	return false
+end
+
 function MaintainLightSource:Visit()
 
 -- 0) Are we near a light source? If yes...nothing to do. 
@@ -25,7 +43,17 @@ function MaintainLightSource:Visit()
     if self.status == READY then
 		self.currentLightSource = nil 
 		
-		local source = GetClosestInstWithTag("lightsource", self.inst, self.distance)
+		local x,y,z = self.inst.Transform:GetWorldPosition()
+        local ents = TheSim:FindEntities(x,y,z, self.distance, {"lightsource"})
+		
+		-- Find the closest valid light source near us
+		local source = nil
+		for k,v in pairs(ents) do
+			if not source and IsValidLightSource(v) then
+				source = v
+			end
+		end
+		
 		-- Nothing nearby! Fix this asap.
 		if not source then
 			print("No light nearby!!!")
@@ -35,23 +63,21 @@ function MaintainLightSource:Visit()
 		end
 		
 		if source then
+		
 			-- Make sure we stay close enough to it
 			local dsq = self.inst:GetDistanceSqToInst(source)
 			if dsq >= SAFE_LIGHT_DISTANCE*SAFE_LIGHT_DISTANCE then
 				print("Too far! I'm scared")
-				-- Pick a random spot near the light to run to.
-				-- TODO: Find the light intensity and stay within that...
-				local pos = self.inst.brain:GetPointNearThing(source,4)
-				if pos then
-					self.inst.components.locomotor:GoToPoint(pos,nil,true)
-				else
-					-- Couldn't get a point near it. Just run into the fire.
-					self.inst.components.locomotor:GoToEntity(source,nil,true)
-				end
-				
+				self.runningTowardsLight = true
+				self.inst.components.locomotor:RunInDirection(self.inst:GetAngleToPoint(Point(source.Transform:GetWorldPosition())))
 				-- We're close enough to some light. Nothing to do.
 				self.status = FAILED
 				return
+			else
+				if self.runningTowardsLight then
+					self.inst.components.locomotor:Stop()
+					self.runningTowardsLight = false
+				end
 			end
 			
 			-- If it's a firepit or campfire, make sure there's enough fuel 

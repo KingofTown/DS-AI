@@ -12,6 +12,7 @@ require "behaviours/findandactivate"
 require "behaviours/findresourceonground"
 require "behaviours/findresourcetoharvest"
 require "behaviours/findtreeorrock"
+require "behaviours/findormakelight"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -406,7 +407,7 @@ function ArtificalBrain:IncreaseSearchDistance()
 end
 
 function ArtificalBrain:ResetSearchDistance()
-	print("ResetSearchDistance")
+	--print("ResetSearchDistance")
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
@@ -1352,8 +1353,11 @@ function ArtificalBrain:OnStart()
 			-- Must be near light! 	
 			--IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
 			--	DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
-			IfNode(function() return not IsNearLightSource(self.inst) end, "no light!!!",
-				ConditionNode(function() return MakeLightSource(self.inst) end, "making light")),
+			--IfNode(function() return not IsNearLightSource(self.inst) end, "no light!!!",
+			--	ConditionNode(function() return MakeLightSource(self.inst) end, "making light")),
+				
+			-- Make sure there's light!
+			MaintainLightSource(self.inst, 30),
 				
 			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
 				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),

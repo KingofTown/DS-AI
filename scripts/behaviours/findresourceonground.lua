@@ -9,7 +9,7 @@ function FindResourceOnGround:OnFail()
     self.pendingstatus = FAILED
 end
 function FindResourceOnGround:OnSucceed()
-	print(self.action:__tostring() .. " complete!")
+	--print(self.action:__tostring() .. " complete!")
     self.pendingstatus = SUCCESS
 end
 
@@ -37,8 +37,8 @@ function FindResourceOnGround:Visit()
 							item.components.inventoryitem.canbepickedup and 
 							not item.components.inventoryitem:IsHeld() and
 							item:IsOnValidGround() and
-							-- Ignore things we have a full stack of
-							not self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 2) and
+							-- Ignore things we have a full stack of (or one of if it doesn't stack)
+							not self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 1) and
 							-- Ignore this unless it fits in a stack
 							not (self.inst.components.inventory:IsFull() and haveItem == nil) and
 							not self.inst.brain:OnIgnoreList(item.prefab) and

@@ -13,6 +13,9 @@ require "behaviours/findresourceonground"
 require "behaviours/findresourcetoharvest"
 require "behaviours/findtreeorrock"
 require "behaviours/findormakelight"
+require "behaviours/doscience"
+
+require "brains/ai_helper_functions"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -114,13 +117,15 @@ end
 -- If we can craft all necessary resources to build something, returns true
 -- else, returns false
 -- Do not set recursive variable, it will be set on recursive calls
-local itemsNeeded = {}
+--local itemsNeeded = {}
 local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 
-	-- Reset the table
-	if recursive == nil then 
-		for k,v in pairs(itemsNeeded) do itemsNeeded[k]=nil end
+	-- Reset the table if it exists
+	if player.itemsNeeded and not recursive then
+		for k,v in pairs(player.itemsNeeded) do player.itemsNeeded[k]=nil end
 		recursive = 0
+	elseif player.itemsNeeded == nil then
+		player.itemsNeeded = {}
 	end
 	
 	if numToBuild == nil then numToBuild = 1 end
@@ -154,7 +159,7 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 		hasEnough, numHas = player.components.inventory:Has(iv.type,totalAmountNeeded)
 		
 		-- Subtract things already reserved from numHas
-		for i,j in pairs(itemsNeeded) do
+		for i,j in pairs(player.itemsNeeded) do
 			if j.prefab == iv.type then
 				numHas = math.max(0,numHas - 1)
 			end
@@ -167,7 +172,7 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 			-- call doesn't consider them valid.
 			-- Make it level 0 as we already have this good.
 			if numHas > 0 then
-				table.insert(itemsNeeded,1,{prefab=iv.type,amount=numHas,level=0})
+				table.insert(player.itemsNeeded,1,{prefab=iv.type,amount=numHas,level=0})
 			end
 			-- Recursive check...can we make this ingredient
 			local canCraft = CanIBuildThis(player,iv.type,needed,recursive+1)
@@ -177,12 +182,12 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 			else
 				-- We know the recipe to build this and have the goods. Add it to the list
 				-- This should get added in the recursive case
-				--table.insert(itemsNeeded,1,{prefab=iv.type, amount=needed, level=recursive, toMake=thingToBuild})
+				--table.insert(player.itemsNeeded,1,{prefab=iv.type, amount=needed, level=recursive, toMake=thingToBuild})
 			end
 		else
 			-- We already have enough to build this resource. Add these to the list
 			print("Adding " .. tostring(totalAmountNeeded) .. " of " .. iv.type .. " at level " .. tostring(recursive) .. " to the itemsNeeded list")
-			table.insert(itemsNeeded,1,{prefab=iv.type, amount=totalAmountNeeded, level=recursive, toMake=thingToBuild, toMakeNum=numToBuild})
+			table.insert(player.itemsNeeded,1,{prefab=iv.type, amount=totalAmountNeeded, level=recursive, toMake=thingToBuild, toMakeNum=numToBuild})
 		end
 	end
 	
@@ -231,14 +236,14 @@ local function BuildThis(player, thingToBuild, pos)
 		player.components.builder:UnlockRecipe(thingToBuild)
 	end
 	
-	if #itemsNeeded == 0 then
+	if not player.itemsNeeded or #player.itemsNeeded == 0 then
 		print("itemsNeeded is empty!")
 	end
 	
-	for k,v in pairs(itemsNeeded) do print(k,v) end
+	for k,v in pairs(player.itemsNeeded) do print(k,v) end
 		
 	-- TODO: Make sure we have the inventory space! 
-	for k,v in pairs(itemsNeeded) do
+	for k,v in pairs(player.itemsNeeded) do
 		-- Just go down the list. If level > 0, we need to build it
 		if v.level > 0 and v.toMake then
 			-- We should be able to build this...
@@ -394,7 +399,7 @@ function ArtificalBrain:ShouldRunAway(guy)
 		return true
 	end
 	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog")
+		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito")
 end
 
 function ArtificalBrain:GetCurrentSearchDistance()
@@ -733,7 +738,7 @@ local function GoForTheEyes(inst)
 	-- TODO: What do we try to make? Only seeing if we can make a spear here as I don't consider an axe or 
 	--       a pickaxe a valid weapon. Should probably excluce
 	if highestDamageWeapon == nil or (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) then
-		if not CanIBuildThis(inst,"spear") and inst.components.combat.target == nil then
+		if not CanPlayerBuildThis(inst,"spear") and inst.components.combat.target == nil then
 			-- TODO: Rather than checking to see if we have a combat target, should make
 			--       sure the closest hostile is X away so we have time to craft one.
 			--       What I do not want is to just keep trying to make one while being attacked.
@@ -963,174 +968,6 @@ local function FightBack(inst)
 end
 ----------------------------- End Combat ---------------------------------------
 
-
-local function IsNearLightSource(inst)
-	local source = GetClosestInstWithTag("lightsource", inst, 20)
-	if source then
-		local dsq = inst:GetDistanceSqToInst(source)
-		if dsq > 25 then
-			print("It's too far away!")
-			return false 
-		end
-		
-		-- Find the source of the light
-		local parent = source.entity:GetParent()
-		if parent then
-			if parent.components.fueled and parent.components.fueled:GetPercent() < .25 then
-				return false
-			end
-		end
-		-- Source either has no parent or doesn't need fuel. We're good.
-		return true
-	end
-
-	return false
-end
-
-local function MakeLightSource(inst)
-	
-	if inst:HasTag("DoingAction") then 
-		print("Currently doing an action....lets hope it's building a fire...wilson")
-		local theAction = inst:GetBufferedAction()
-		if theAction then
-			print(theAction:__tostring())
-			if theAction.action ~= ACTIONS.BUILD then
-				print("uhh, shit shit, what am I doing?!?")
-				-- Cancel this action!
-				-- This should push the fail, which triggers onfail which removes the
-				-- DoingAction tag we have set
-				inst:ClearBufferedAction()
-			end
-		else
-			-- Ummm, we don't have anything buffered. That's not good. Clear the tag
-			inst:RemoveTag("DoingAction")
-		end
-		
-		-- In all of the above cases, return true so we come right back to this node
-		return true
-	end
-	-- If there is one nearby, move to it
-	
-	print("Need to make light!")
-	local source = GetClosestInstWithTag("lightsource", inst, 30)
-	if source then
-		print("Found a light source")
-		local dsq = inst:GetDistanceSqToInst(source)
-		if dsq >= 15 then
-			local pos = GetPointNearThing(source,2)
-			if pos then
-				inst.components.locomotor:GoToPoint(pos,nil,true)
-			end
-		end
-		
-		local parent = source.entity:GetParent()
-		if parent and not parent.components.fueled then
-			-- Found a light source...and it doesn't need fuel. All is good.
-			return true
-		end
-
-	end
-	
-	-- 1) Check for a firepit to add fuel
-	local firepit = GetClosestInstWithTag("campfire",inst,15)
-	if firepit then
-		-- It's got fuel...nothing to do
-		if firepit.components.fueled:GetPercent() > .25 then 
-			-- Return false so we do stuff past this node
-			return false
-		end
-		
-		-- Find some fuel in our inventory to add
-		local allFuelInInv = inst.components.inventory:FindItems(function(item) return item.components.fuel and 
-																				not item.components.armor and
-																				item.prefab ~= "livinglog" and
-																				firepit.components.fueled:CanAcceptFuelItem(item) end)
-		
-		-- Add some fuel to the fire.
-		local bestFuel = nil
-		for k,v in pairs(allFuelInInv) do
-			-- TODO: This is a bit hackey...but really, logs are #1
-			if v.prefab == "log" then
-				inst:PushBufferedAction(BufferedAction(inst, firepit, ACTIONS.ADDFUEL, v))
-				-- Return true to come back here and make sure all is good
-				return true
-			else
-				bestFuel = v
-			end
-		end
-		-- Don't add this stuff unless the fire is really sad
-		if bestFuel and firepit.components.fueled:GetPercent() < .15 then
-			--return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, bestFuel)
-			inst:PushBufferedAction(inst,firepit,ACTIONS.ADDFUEL,bestFuel)
-			-- Return true to come back here and make sure all is still good
-			return true
-		end
-		
-		-- We don't have enough fuel. Let it burn longer before executing backup plan
-		if firepit.components.fueled:GetPercent() > .1 then 
-			-- Return false to let the brain continue to other actions rather than
-			-- to keep checking
-			return false 
-		end
-	end
-	
-	-- No firepit (or no fuel). Can we make one?
-	if inst.components.builder:CanBuild("campfire") then
-		-- Don't build one too close to burnable things. 
-		-- TODO: This should be a while loop until we find a valid spot
-		local burnable = GetClosestInstWithTag("burnable",inst,3)
-		local pos = nil
-		if burnable then
-			print("Don't want to build campfire too close")
-			pos = GetPointNearThing(burnable,4)
-		end
-		--inst.components.builder:DoBuild("campfire",pos)
-		-- Do a buffered action here to attach the onsuccess and onfail listeners
-		local action = SetupBufferedAction(inst,BufferedAction(inst,nil,ACTIONS.BUILD,nil,pos,"campfire",nil,1))
-		-- Need to push this to the locomotor so we walk to the right position
-		print("pushing locomotor action");
-		inst.components.locomotor:PushAction(action, true);
-		--inst:PushBufferedAction(action)
-		return true
-	end
-	
-	-- Can't make a campfire...torch it is (hopefully)
-	
-	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if not haveTorch then
-		-- Need to make one!
-		if inst.components.builder:CanBuild("torch") then
-			--inst.components.builder:DoBuild("torch")
-			local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,"torch",nil)
-			inst:PushBufferedAction(action)
-		end
-	end
-	-- Find it again
-	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if haveTorch then
-		inst.components.inventory:Equip(haveTorch)
-		
-		return true
-	end
-	
-	-- Uhhh....we couldn't add fuel and we didn't have a torch. Find fireflys? 
-	print("Shit shit shit, it's dark!!!")
-	local lastDitchEffort = GetClosestInstWithTag("lightsource", inst, 50)
-	if lastDitchEffort then
-		local pos = GetPointNearThing(lastDitchEffort,2)
-		if pos then
-			inst.components.locomotor:GoToPoint(pos,nil,true)
-		end
-	else
-		print("So...this is how I die")
-		return true
-	end
-	
-	-- Return true so we come back to this node ASAP!
-	return true
-
-end
-
 local function MakeTorchAndKeepRunning(inst)
 	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
 	if not haveTorch then
@@ -1350,12 +1187,6 @@ function ArtificalBrain:OnStart()
 			--WhileNode(function() return HasValidHome(self.inst) and not AtHome(self.inst) end, "runHomeJack",
 			--	DoAction(self.inst, function() return MakeTorchAndKeepRunning(self.inst) end, "make torch", true)),
 				
-			-- Must be near light! 	
-			--IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
-			--	DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
-			--IfNode(function() return not IsNearLightSource(self.inst) end, "no light!!!",
-			--	ConditionNode(function() return MakeLightSource(self.inst) end, "making light")),
-				
 			-- Make sure there's light!
 			MaintainLightSource(self.inst, 30),
 				
@@ -1419,8 +1250,11 @@ function ArtificalBrain:OnStart()
 			
 			-- Prototype things whenever we get a chance
 			-- Home is defined as our science machine...
-			IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) and not self.inst.currentBufferedBuild end, "atHome", 
-				DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
+			--IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) and not self.inst.currentBufferedBuild end, "atHome", 
+			--	DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
+			
+			-- If near a science machine, wilson will prototype stuff!
+			DoScience(self.inst),
 				
 			-- Always fight back or run. Don't just stand there like a tool
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",

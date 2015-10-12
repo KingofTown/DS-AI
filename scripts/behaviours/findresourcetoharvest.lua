@@ -13,7 +13,10 @@ function FindResourceToHarvest:OnSucceed()
 end
 
 function FindResourceToHarvest:Visit()
-	--print("FindResourceToHarvest:Visit() - " .. tostring(self.status))
+	if self.inst:HasTag("PrintThis") then 
+		print("FindResourceToHarvest:Visit() - " .. tostring(self.status))
+	end
+	
     if self.status == READY then
 		local target = FindEntity(self.inst, self.distance(), function(item)
 					

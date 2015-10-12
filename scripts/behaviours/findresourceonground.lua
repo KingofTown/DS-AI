@@ -6,6 +6,7 @@ end)
 
 -- Returned from the ACTIONS.EAT
 function FindResourceOnGround:OnFail()
+	print(self.action:__tostring() .. " failed!")
     self.pendingstatus = FAILED
 end
 function FindResourceOnGround:OnSucceed()
@@ -29,7 +30,7 @@ function FindResourceOnGround:Visit()
 						
 						-- Ignore things near scary dudes
 						if self.inst.brain:HostileMobNearInst(item) then 
-							print("Ignoring " .. item.prefab .. " as there is something scary near it")
+							--print("Ignoring " .. item.prefab .. " as there is something scary near it")
 							return false 
 						end
 			

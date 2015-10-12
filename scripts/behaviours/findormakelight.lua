@@ -4,7 +4,7 @@ MaintainLightSource = Class(BehaviourNode, function(self, inst, searchDistance)
 	self.distance = searchDistance
 end)
 
-local SAFE_LIGHT_DISTANCE = 5
+local SAFE_LIGHT_DISTANCE = 3
 
 function MaintainLightSource:OnActionFail()
 	self.pendingstatus = FAILED
@@ -63,21 +63,25 @@ function MaintainLightSource:Visit()
 		end
 		
 		if source then
+			-- Get the safety distance according to the lightsource
+			-- strength
+			
+			self.safe_distance = SAFE_LIGHT_DISTANCE
+			if source.components.firefx then
+				self.safe_distance = source.components.firefx.current_radius
+			end
 		
 			-- Make sure we stay close enough to it
 			local dsq = self.inst:GetDistanceSqToInst(source)
-			if dsq >= SAFE_LIGHT_DISTANCE*SAFE_LIGHT_DISTANCE then
+			if dsq >= self.safe_distance*self.safe_distance then
 				print("Too far! I'm scared")
+				self.currentLightSource = source
 				self.runningTowardsLight = true
-				self.inst.components.locomotor:RunInDirection(self.inst:GetAngleToPoint(Point(source.Transform:GetWorldPosition())))
-				-- We're close enough to some light. Nothing to do.
-				self.status = FAILED
+				self.inst.components.locomotor:RunInDirection(
+					self.inst:GetAngleToPoint(Point(source.Transform:GetWorldPosition())))
+				-- Run towards the light!
+				self.status = RUNNING
 				return
-			else
-				if self.runningTowardsLight then
-					self.inst.components.locomotor:Stop()
-					self.runningTowardsLight = false
-				end
 			end
 			
 			-- If it's a firepit or campfire, make sure there's enough fuel 
@@ -86,7 +90,6 @@ function MaintainLightSource:Visit()
 			local parent = source.entity:GetParent()
 			if parent then
 				if parent.components.fueled and parent.components.fueled:GetPercent() < .25 then
-					print("Visit: Need to add fuel to the parent")
 					self.currentLightSource = parent
 					self.status = RUNNING
 					return
@@ -112,6 +115,30 @@ function MaintainLightSource:Visit()
 		end
 
     elseif self.status == RUNNING then
+	
+		if self.runningTowardsLight then
+			-- Uhh, the light has vanished!
+			if self.currentLightSource == nil then
+				self.status = FAILED
+				return
+			end
+			
+			local dsq = self.inst:GetDistanceSqToInst(self.currentLightSource)
+			if dsq <= self.safe_distance*self.safe_distance then
+				self.inst.components.locomotor:Stop()
+				self.runningTowardsLight = false
+				-- Return failed here. This isn't important
+				self.status = SUCCESS
+				return
+			else
+				-- Keep running towards the light. 
+				-- Set the locomotor to run again incase something interrupted it. This
+				-- is important, dammit! 
+				self.inst.components.locomotor:RunInDirection(
+						self.inst:GetAngleToPoint(Point(self.currentLightSource.Transform:GetWorldPosition())))
+				return
+			end
+		end
 	
 		-- Waiting for our build to succeed...nothing to do
 		if self.currentBuildAction and self.pendingstatus == nil then
@@ -179,7 +206,6 @@ function MaintainLightSource:Visit()
 		if self.currentLightSource then
 			-- There was a light source. It must need fuel or something.
 			if self.currentLightSource.components.fueled and self.currentLightSource.components.fueled:GetPercent() <= .25 then
-				print("Gotta add fuel to the fire!")
 
 				-- Find fuel to add to the fire
 				local allFuelInInv = self.inst.components.inventory:FindItems(function(item) 
@@ -220,12 +246,14 @@ function MaintainLightSource:Visit()
 					-- to keep checking
 					self.status = FAILED
 					return
-				end				
+				end		
+				
 			elseif self.currentLightSource.components.fueled and self.currentLightSource.components.fueled:GetPercent() > .25 then
+				-- We've added enough fuel!
 				self.status = SUCCESS
 				return
 			else
-				print("Current lightsource doesn't need fuel...")
+				print("Current lightsource doesn't take fuel...")
 				self.status = FAILED
 				return
 			end

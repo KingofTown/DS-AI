@@ -3,7 +3,30 @@ FindResourceToHarvest = Class(BehaviourNode, function(self, inst, searchDistance
     self.inst = inst
 	self.distance = searchDistanceFn
 	
+	self.locomotorFailed = function(inst, data)
+		local theAction = data.action or "[Unknown]"
+		local theReason = data.reason or "[Unknown]"
+		print("FindResourceToHarvest: Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+        self:OnFail() 
+    end
+	
+	self.onReachDest = function(inst,data)
+		local target = data.target
+		if target and self.action and target == self.action.target then
+			print("We have arrived.")
+			self.reachedDestination = true
+		end
+	end
+	
+	self.inst:ListenForEvent("actionfailed", self.locomotorFailed)
+	self.inst:ListenForEvent("onreachdestination", self.onReachDest)
+	
 end)
+
+function FindResourceToHarvest:OnStop()
+	self.inst:RemoveEventCallback("actionfailed", self.locomotorFailed)
+	self.inst:RemoveEventCallback("onreachdestination", self.onReachDest)
+end
 
 function FindResourceToHarvest:OnFail()
     self.pendingstatus = FAILED
@@ -13,11 +36,10 @@ function FindResourceToHarvest:OnSucceed()
 end
 
 function FindResourceToHarvest:Visit()
-	if self.inst:HasTag("PrintThis") then 
-		print("FindResourceToHarvest:Visit() - " .. tostring(self.status))
-	end
 	
     if self.status == READY then
+		self.reachedDestination = nil
+		
 		local target = FindEntity(self.inst, self.distance(), function(item)
 					
 					if item.components.pickable and item.components.pickable:CanBePicked() and item.components.pickable.caninteractwith then
@@ -70,6 +92,9 @@ function FindResourceToHarvest:Visit()
 		if self.pendingstatus then
 			self.status = self.pendingstatus
 		elseif not self.action:IsValid() then
+			self.status = FAILED
+		elseif not self.inst.components.locomotor:HasDestination() and not self.reachedDestination then
+			print("We have no destination and we haven't reached it yet! We're stuck!")
 			self.status = FAILED
 		end
     end

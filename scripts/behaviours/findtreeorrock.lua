@@ -26,6 +26,8 @@ end
 
 function FindTreeOrRock:SetupActionWithTool(target, tool)
 	local action = BufferedAction(self.inst, target, self.actionType,tool)
+	action:AddFailAction(function() end)
+	action:AddSuccessAction(function() end)
 	self.action = action
 	self.inst.components.locomotor:PushAction(action, true)
 end

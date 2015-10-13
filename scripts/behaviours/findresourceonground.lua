@@ -2,11 +2,31 @@ FindResourceOnGround = Class(BehaviourNode, function(self, inst, searchDistanceF
     BehaviourNode._ctor(self, "FindResourceOnGround")
     self.inst = inst
 	self.distance = searchDistanceFn
+	
+	self.locomotorFailed = function(inst, data)
+		local theAction = data.action or "[Unknown]"
+		local theReason = data.reason or "[Unknown]"
+		print("FindResourceOnGround: Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+        self:OnFail() 
+    end
+	
+	self.onReachDest = function(inst,data)
+		local target = data.target
+		if target and self.action and target == self.action.target then
+			self.reachedDestination = true
+		end
+	end
+	
+	self.inst:ListenForEvent("actionfailed", self.locomotorFailed)
+	self.inst:ListenForEvent("onreachdestination", self.onReachDest)
 end)
 
--- Returned from the ACTIONS.EAT
+function FindResourceOnGround:OnStop()
+	self.inst:RemoveEventCallback("actionfailed", self.locomotorFailed)
+end
+
 function FindResourceOnGround:OnFail()
-	print(self.action:__tostring() .. " failed!")
+	--print(self.action:__tostring() .. " failed!")
     self.pendingstatus = FAILED
 end
 function FindResourceOnGround:OnSucceed()
@@ -18,6 +38,7 @@ end
 function FindResourceOnGround:Visit()
 	--print("FindResourceOnGround:Visit() - " .. tostring(self.status))
     if self.status == READY then
+		self.reachedDestination = nil
 		local target = FindEntity(self.inst, self.distance(), function(item)
 						-- Do we have a slot for this already
 						local haveItem = self.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
@@ -68,6 +89,9 @@ function FindResourceOnGround:Visit()
 		if self.pendingstatus then
 			self.status = self.pendingstatus
 		elseif not self.action:IsValid() then
+			self.status = FAILED
+		elseif not self.inst.components.locomotor:HasDestination() and not self.reachedDestination then
+			print("We have no destination and we haven't reached it yet! We're stuck!")
 			self.status = FAILED
 		end
     end

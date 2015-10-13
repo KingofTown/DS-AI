@@ -165,11 +165,11 @@ end
 
 ---------------------------------------------------------------------------------------
 
--- Only call this while in or transitioning to a RUNNING state in a priority node
+-- Only call this while in, or transitioning to, a RUNNING state in a priority node
 -- This will build whatever is defined in the bufferedActions and call onsuccess or onfail
 -- when complete
 function BuildInNode(player, thingToBuild, pos, onsuccess, onfail)
-	local bufferedActions = GenerateBufferedBuildOrder(player, thingToBuild, pos, onSuccess, onFail)
+	local bufferedActions = GenerateBufferedBuildOrder(player, thingToBuild, pos, onsuccess, onfail)
 
 	local buildEmpty = false
 
@@ -177,14 +177,17 @@ function BuildInNode(player, thingToBuild, pos, onsuccess, onfail)
 		if bufferedActions then
 			local action = table.remove(bufferedActions,1)
 			if not action then
+				-- Hopefully the final onsuccess action was called. 
+				-- I don't know if I should push an onfail action or not.
+				-- It could be that this onsuccess is called first in which
+				-- case pushing a fail would be premature and possibly incorrect
 				print("PushNextAction: action empty")
-				-- The list is empty.
 				buildEmpty = true
 				return
 			end
 			
 			action:AddSuccessAction(function() DoNextAction() end)
-			player.inst.components.locomotor:PushAction(action, true)
+			player.components.locomotor:PushAction(action, true)
 		end
 	end
 

@@ -1,8 +1,15 @@
 require "brains/ai_helper_functions"
 
-DoScience = Class(BehaviourNode, function(self, inst)
+-- getBuildFn should return a table with the following
+--    thingToBuild
+--    pos or nil
+--    onsuccess or nil
+--    onfail or nil
+-- Finally, the getBuildFn should clear the return value so it is nil next pass.
+DoScience = Class(BehaviourNode, function(self, inst, getBuildFn)
     BehaviourNode._ctor(self, "DoScience")
     self.inst = inst
+	self.getThingToBuildFn = getBuildFn
 	self.bufferedBuildList = nil
 	self.buildStatus = nil 
 	self.waitingForBuild = nil
@@ -10,10 +17,16 @@ DoScience = Class(BehaviourNode, function(self, inst)
 	-- Is set when the final build is complete
 	self.onSuccess = function()
 		self.buildStatus = SUCCESS
+		if self.buildTable and self.buildTable.onsuccess then
+			self.buildTable.onsuccess()
+		end
 	end
 	
 	self.onFail = function()
 		self.buildStatus = FAILED
+		if self.buildTable and self.buildTable.onfail then
+			self.buildTable.onfail()
+		end
 	end
 end)
 
@@ -61,6 +74,60 @@ function DoScience:Visit()
 		self.buildStatus = nil
 		self.bufferedBuildList = nil
 		self.waitingForBuild = nil
+		self.buildTable = nil
+		
+		-- Some other nodes has something they want built. 
+		if self.getThingToBuildFn ~= nil then
+			self.buildTable = self.getThingToBuildFn()
+			
+			if self.buildTable and self.buildTable.prefab then
+				local toBuild = self.buildTable.prefab
+				local recipe = GetRecipe(toBuild)
+				
+				if not recipe then
+					print("Cannot build " .. toBuild .. " as it doesn't have a recipe")
+					if self.buildTable.onfail then 
+						self.buildTable.onfail()
+					end
+					self.status = FAILED
+					return
+				else
+					if not self.inst.components.builder:KnowsRecipe(toBuild) then
+						-- Add it to the prototype list.
+						if BUILD_PRIORITY[toBuild] == nil then
+							print("Don't know how to build " .. toBuild .. "...adding to build table")
+							table.insert(BUILD_PRIORITY,toBuild,1)
+						end
+						if self.buildTable.onfail then 
+							self.buildTable.onfail()
+						end
+						self.status = FAILED
+						return
+					else
+						-- We know HOW to craft it. Can we craft it?
+						if CanPlayerBuildThis(self.inst,toBuild) then
+							self.bufferedBuildList = GenerateBufferedBuildOrder(self.inst,toBuild,self.buildTable.pos,self.onSuccess, self.onFail)
+							-- We apparnetly know how to make this thing. Let's try!
+							if self.bufferedBuildList ~= nil then
+								print("Attempting to build " .. toBuild)
+								self.status = RUNNING
+								self:PushNextAction()
+								return
+							end	
+						else
+							-- Don't have enough resources to build this.
+							print("Don't have enough resources to make " .. toBuild)
+							if self.buildTable.onfail then 
+								self.buildTable.onfail()
+							end
+							self.status = FAILED
+							return
+						end
+					end
+				end
+			end
+			-- If buildThing doesn't return something, just do our normal stuff.
+		end
 		
 		local prototyper = self.inst.components.builder.current_prototyper;
 		if not prototyper then

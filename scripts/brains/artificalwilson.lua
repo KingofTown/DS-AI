@@ -290,38 +290,6 @@ local function BuildThis(player, thingToBuild, pos)
 
 end
 
--- Finds things we can prototype and does it.
--- TODO, should probably get a prototype order list somewhere...
-
-local function PrototypeStuff(inst)
-	print("PrototypeStuff")
-	local prototyper = inst.components.builder.current_prototyper;
-	if not prototyper then
-		print("Not by a science machine...nothing to do")
-		return
-	end
-	
-	print("Standing next to " .. prototyper.prefab .. " ...what can I build...")
-	
-	local tech_level = inst.components.builder.accessible_tech_trees
-
-	for k,v in pairs(BUILD_PRIORITY) do
-		-- Looking for things we can prototype
-		local recipe = GetRecipe(v)
-		
-		if not inst.components.builder:KnowsRecipe(v) then
-			print("Don't know how to build " .. v)
-			-- Will check our inventory for all items needed to build this
-			if CanIBuildThis(inst,v) and CanPrototypeRecipe(recipe.level,tech_level) then
-				-- Will push the buffered event to build this thing
-				-- TODO: Add a position for non inventory items
-				BuildThis(inst,v)
-				return
-			end
-		end
-	end
-end
-
 -- Returns a point somewhere near thing at a distance dist
 local function GetPointNearThing(thing, dist)
 	local pos = Vector3(thing.Transform:GetWorldPosition())
@@ -1036,6 +1004,25 @@ local function OnHitFcn(inst,data)
 	inst.components.combat:SetTarget(data.attacker)
 end
 
+-- Used by doscience node. It expects a table returned with
+function ArtificalBrain:GetSomethingToBuild()
+	if self.newPendingBuild then
+		self.newPendingBuild = false
+		return self.pendingBuildTable
+	end
+end
+
+function ArtificalBrain:SetSomethingToBuild(prefab, pos, onsuccess, onfail)
+	if self.pendingBuildTable == nil then
+		self.pendingBuildTable = {}
+	end
+	
+	self.pendingBuildTable.prefab = prefab
+	self.pendingBuildTable.pos = pos
+	self.pendingBuildTable.onsuccess = onsuccess
+	self.pendingBuildTable.onfail = onfail
+	self.newPendingBuild = true
+end
 
 function ArtificalBrain:OnStop()
 	print("Stopping the brain!")
@@ -1254,7 +1241,8 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
 			
 			-- If near a science machine, wilson will prototype stuff!
-			DoScience(self.inst),
+			-- Otherwise, if anything is set in the buildtable, this node will build it.
+			DoScience(self.inst, function() return self:GetSomethingToBuild() end),
 				
 			-- Always fight back or run. Don't just stand there like a tool
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",

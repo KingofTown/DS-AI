@@ -15,7 +15,7 @@ require "behaviours/findtreeorrock"
 require "behaviours/findormakelight"
 require "behaviours/doscience"
 
-require "brains/ai_helper_functions"
+require "brains/ai_build_helper"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -23,26 +23,6 @@ local SEARCH_SIZE_STEP = 10
 local RUN_AWAY_SEE_DIST = 5
 local RUN_AWAY_STOP_DIST = 10
 local CurrentSearchDistance = MIN_SEARCH_DISTANCE
-
--- The order in which we prioritize things to build
--- Stuff to be collected should follow the priority of the build order
--- Have things to build once, build many times, etc
--- Denote if we should always keep spare items (to build fire, etc)
-local BUILD_PRIORITY = {
-		"axe",
-		"pickaxe",
-		"rope",
-		"boards",
-		"cutstone",
-		"papyrus",
-		"spear",
-		"footballhat",
-		"backpack",
-		"treasurechest",
-		"armorwood",
-}
-
-
 
 -- What to gather. This is a simple FIFO. Highest priority will be first in the list.
 local GATHER_LIST = {}
@@ -290,19 +270,6 @@ local function BuildThis(player, thingToBuild, pos)
 
 end
 
--- Returns a point somewhere near thing at a distance dist
-local function GetPointNearThing(thing, dist)
-	local pos = Vector3(thing.Transform:GetWorldPosition())
-
-	if pos then
-		local theta = math.random() * 2 * PI
-		local radius = dist
-		local offset = FindWalkableOffset(pos, theta, radius, 12, true)
-		if offset then
-			return pos+offset
-		end
-	end
-end
 
 ------------------------------------------------------------------------------------------------
 
@@ -377,12 +344,11 @@ function ArtificalBrain:GetCurrentSearchDistance()
 end
 
 function ArtificalBrain:IncreaseSearchDistance()
-	print("IncreaseSearchDistance")
 	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
+		print("IncreaseSearchDistance to: " .. tostring(CurrentSearchDistance))
 end
 
 function ArtificalBrain:ResetSearchDistance()
-	--print("ResetSearchDistance")
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
@@ -453,20 +419,6 @@ end
 
 --------------------------------------------------------------------------------
 
-
-
------------------------------------------------------------------------
--- Inventory Management
-
--- Stuff to do when our inventory is full
--- Eat more stuff
--- Drop useless stuff
--- Craft stuff?
--- Make a chest? 
--- etc
-local function ManageInventory(inst)
-
-end
 
 -- Eat sanity restoring food
 -- Put sanity things on top of list when sanity is low
@@ -539,6 +491,7 @@ local function ListenForBuild(inst,data)
 	end
 end
 
+-- TODO: Move this to a behaviour node
 local function FindValidHome(inst)
 
 	if not HasValidHome(inst) and inst.components.homeseeker then
@@ -547,7 +500,7 @@ local function FindValidHome(inst)
 		-- For now, it's going to be the first place we build a science machine
 		if inst.components.builder:CanBuild("researchlab") then
 			-- Find some valid ground near us
-			local machinePos = GetPointNearThing(inst,3)		
+			local machinePos = inst.brain:GetPointNearThing(inst,3)		
 			if machinePos ~= nil then
 				print("Found a valid place to build a science machine")
 				--return SetupBufferedAction(inst, BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil))
@@ -574,40 +527,6 @@ local function FindValidHome(inst)
 	end
 end
 
----------------------------------------------------------------------------
--- Run away
-
--- Things to pretty much always run away from
--- TODO: Make this a dynamic list
-local function ShouldRunAway(guy)
-	-- Wilson apparently gets scared by his own shadow
-	-- Also, don't get scared of chester too...
-	if guy:HasTag("player") or guy:HasTag("companion") then 
-		return false 
-	end
-	
-	-- Angry worker bees don't have the special tag...so check to see if it's spring
-	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
-	if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
-		return true
-	end
-	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito")
-end
-
--- Returns true if there is anything that we should run away from is near inst
-local function HostileMobNearInst(inst)
-	local pos = inst.Transform:GetWorldPosition()
-	if pos then
-		return FindEntity(inst,RUN_AWAY_SEE_DIST,function(guy) return ShouldRunAway(guy) end) ~= nil
-	end
-	return false
-end
-
--- Gather stuff
-
-
-
 
 -- Find somewhere interesting to go to
 local function FindSomewhereNewToGo(inst)
@@ -622,39 +541,10 @@ local function FindSomewhereNewToGo(inst)
 end
 
 
-local currentTreeOrRock = nil
-local function OnFinishedWork(inst,data)
-	print("Work finished on " .. data.target.prefab)
-	currentTreeOrRock = nil
-	inst:RemoveTag("DoingLongAction")
-end
-
-
--- Harvest Actions
--- TODO: Implement this 
-local function FindHighPriorityThings(inst)
-    --local ents = TheSim:FindEntities(x,y,z, radius, musttags, canttags, mustoneoftags)
-	local p = Vector3(inst.Transform:GetWorldPosition())
-	if not p then return end
-	-- Get ALL things around us
-	local things = FindEntities(p.x,p.y,p.z, CurrentSearchDistance/2, nil, {"player"})
-	
-	local priorityItems = {}
-	for k,v in pairs(things) do
-		if v ~= inst and v.entity:IsValid() and v.entity:IsVisible() then
-			if IsInPriorityTable(v) then
-				table.insert(priorityItems,v)
-			end
-		end
-	end
-	
-	-- Filter out stuff
-end
-
-
 -----------------------------------------------------------------------
 -- COMBAT
 
+-- Move this to a ai_combat.lua file
 local function GoForTheEyes(inst)
 --[[
 1) Find the closest hostile mob close to me (within 30?)
@@ -803,170 +693,14 @@ local function GoForTheEyes(inst)
 	
 end
 
--- Under these conditions, fight back. Else, run away
-local function FightBack(inst)
-	if inst.components.combat.target ~= nil then
-		print("Fight Back called with target " .. tostring(inst.components.combat.target.prefab))
-		inst.components.combat.target:AddTag("TryingToKillUs")
-	else
-		inst:RemoveTag("FightBack")
-		return
-	end
 
-	-- This has priority. 
-	inst:RemoveTag("DoingAction")
-	inst:RemoveTag("DoingLongAction")
-	
-	if inst.sg:HasStateTag("busy") then
-		return
-	end
-	
-	-- If it's on the do_not_engage list, just run! Not sure how it got us, but it did.
-	if ShouldRunAway(inst) then return end
-	
-	-- If we're close to dead...run away
-	if inst.components.health:GetPercent() < .35 then return end
-	
-	-- All things seem to fight in groups. Count the number of like mobs near this mob. If more than 2, runaway!
-	local pos = Vector3(inst.Transform:GetWorldPosition())
-	local likeMobs = TheSim:FindEntities(pos.x,pos.y,pos.z, 6)
-	local numTargets = 0
-	for k,v in pairs(likeMobs) do 
-		if v.prefab == inst.components.combat.target.prefab then
-			numTargets = numTargets + 1
-			v:AddTag("TryingToKillUs")
-		end
-	end
-	
-	if numTargets > 3 then
-		print("Too many! Run away!")
-		return
-	end
-	
-	-- Do we want to fight this target? 
-	-- What conditions would we fight under? Armor? Weapons? Hounds? etc
-	
-	-- Right now, the answer will be "YES, IT MUST DIE"
-	
-	-- First, check the distance to the target. This could be an old target that we've run away from. If so,
-	-- clear the combat target fcn.
-
-	-- Do we have a weapon
-	local equipped = inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-	local allWeaponsInInventory = inst.components.inventory:FindItems(function(item) return item.components.weapon and item.components.equippable end)
-	
-	-- Sort by highest damage and equip that one. Replace the one in hands if higher
-	local highestDamageWeapon = nil
-	
-	if equipped and equipped.components.weapon then
-		highestDamageWeapon = equipped
-	end
-	for k,v in pairs(allWeaponsInInventory) do
-		if highestDamageWeapon == nil then
-			highestDamageWeapon = v
-		else
-			if v.components.weapon.damage > highestDamageWeapon.components.weapon.damage then
-				highestDamageWeapon = v
-			end
-		end
-	end
-	
-	-- If we don't have at least a spears worth of damage, make a spear
-	if (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) or highestDamageWeapon == nil then
-		--print("Shit shit shit, no weapons")
-		
-		-- Can we make a spear? We'll equip it on the next visit to this function
-		if inst.components.builder and CanIBuildThis(inst, "spear") then
-			BuildThis(inst,"spear")
-		else
-			-- Can't build a spear. If we don't have ANYTHING, run away!
-			if highestDamageWeapon == nil then
-				-- Can't even build a spear! Abort abort!
-				--addRecipeToGatherList("spear",false)
-				inst:RemoveTag("FightBack")
-				inst.components.combat:GiveUp()
-				return
-			end
-			print("Can't build a spear. I'm using whatever I've got!")
-		end
-	end
-	
-	
-	-- Equip our best weapon (before armor incase its in our backpack)
-	if equipped ~= highestDamageWeapon and highestDamageWeapon ~= nil then
-		inst.components.inventory:Equip(highestDamageWeapon)
-	end
-	
-	-- We're gonna fight. Do we have armor that's not equiped?
-	if not inst.components.inventory:IsWearingArmor() then
-		-- Do we have any? Equip the one with the highest value
-		-- Else, try to make some (what order should I make it in?)
-		local allArmor = inst.components.inventory:FindItems(function(item) return item.components.armor end)
-		
-		-- Don't have any. Can we make some?
-		if #allArmor == 0 then
-			print("Don't own armor. Can I make some?")
-			-- TODO: Make this from a lookup table or something.
-			if CanIBuildThis(inst,"armorwood") then
-				BuildThis(inst,"armorwood")
-			elseif CanIBuildThis(inst,"armorgrass") then
-				BuildThis(inst,"armorgrass")
-			end
-		end
-		
-		-- Do another lookup
-		allArmor = inst.components.inventory:FindItems(function(item) return item.components.armor end)
-		local highestArmorValue = nil
-		for k,v in pairs(allArmor) do 
-			if highestArmorValue == nil and v.components.armor.absorb_percent then 
-				highestArmorValue = v
-			else
-				if v.components.armor.absorb_percent and 
-				v.components.armor.absorb_percent > highestArmorValue.components.armor.absorb_persent then
-					highestArmorValue = v
-				end
-			end
-		end
-		
-		if highestArmorValue then
-			-- TODO: Need to pick up backpack once we make one
-			inst.components.inventory:Equip(highestArmorValue)
-		end
-	end
-	
-	inst:AddTag("FightBack")
-end
------------------------------ End Combat ---------------------------------------
-
-local function MakeTorchAndKeepRunning(inst)
-	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if not haveTorch then
-		-- Need to make one!
-		if inst.components.builder:CanBuild("torch") then
-			--inst.components.builder:DoBuild("torch")
-			local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,"torch",nil)
-			inst:PushBufferedAction(action)
-		end
-	end
-	-- Find it again
-	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if haveTorch then
-		inst.components.inventory:Equip(haveTorch)
-	end
-	
-	-- OK, have a torch. Run home!
-	if  haveTorch and HasValidHome(inst) and
-        not inst.components.combat.target then
-			inst.components.homeseeker:GoHome(true)
-    end
-	
-end
 
 local function IsNearCookingSource(inst)
 	local cooker = GetClosestInstWithTag("campfire",inst,10)
 	if cooker then return true end
 end
 
+-- TODO: Move this to behaviour node
 local function CookSomeFood(inst)
 	local cooker = GetClosestInstWithTag("campfire",inst,10)
 	if cooker then
@@ -1029,7 +763,6 @@ end
 function ArtificalBrain:OnStop()
 	print("Stopping the brain!")
 	self.inst:RemoveEventCallback("actionDone",ActionDone)
-	self.inst:RemoveEventCallback("finishedwork", OnFinishedWork)
 	self.inst:RemoveEventCallback("buildstructure", ListenForBuild)
 	self.inst:RemoveEventCallback("builditem",ListenForBuild)
 	self.inst:RemoveEventCallback("attacked", OnHitFcn)
@@ -1041,7 +774,6 @@ function ArtificalBrain:OnStart()
 	local clock = GetClock()
 	
 	self.inst:ListenForEvent("actionDone",ActionDone)
-	self.inst:ListenForEvent("finishedwork", OnFinishedWork)
 	self.inst:ListenForEvent("buildstructure", ListenForBuild)
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
@@ -1109,11 +841,7 @@ function ArtificalBrain:OnStart()
 	-- Do this stuff the first half of duck (or all of dusk if we don't have a home yet)
 	local dusk = WhileNode( function() return clock and clock:IsDusk() and (not MidwayThroughDusk() or not HasValidHome(self.inst)) end, "IsDusk",
         PriorityNode{
-	
-			-- If we started doing a long action, keep doing that action
-			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-					DoAction(self.inst, function() return FindTreeOrRockAction(self,nil,true) end, "continueAction", true)	),
-			
+				
 			-- Make sure we eat. During the day, only make sure to stay above 50% hunger.
 			ManageHunger(self.inst,.5),
 			
@@ -1172,9 +900,7 @@ function ArtificalBrain:OnStart()
 		
 	local night = WhileNode( function() return clock and clock:IsNight() end, "IsNight",
         PriorityNode{
-			-- If we aren't home but we have a home, make a torch and keep running!
-			--WhileNode(function() return HasValidHome(self.inst) and not AtHome(self.inst) end, "runHomeJack",
-			--	DoAction(self.inst, function() return MakeTorchAndKeepRunning(self.inst) end, "make torch", true)),
+			-- TODO: If we aren't home but we have a home, make a torch and keep running!
 				
 			-- Make sure there's light!
 			MaintainLightSource(self.inst, 30),
@@ -1201,8 +927,7 @@ function ArtificalBrain:OnStart()
 	local root = 
         PriorityNode(
         {   
-			-- No matter the time, panic when on fire
-			--WhileNode(function() local ret = self.inst:HasTag("Stuck") self.inst:RemoveTag("Stuck") return ret end, "Stuck", Panic(self.inst)),
+			-- If any brain function decides necessar, it can add an IsStuck tag to wilson. This will cause the brain to reset. 
 			IfNode( function() return self.inst:HasTag("IsStuck") end, "stuck",
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
 				

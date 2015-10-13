@@ -1,4 +1,4 @@
-require "brains/ai_helper_functions"
+require "brains/ai_build_helper"
 
 -- getBuildFn should return a table with the following
 --    thingToBuild
@@ -53,17 +53,8 @@ function DoScience:PushNextAction()
 end
 
 local BUILD_PRIORITY = {
-		"axe",
-		"pickaxe",
-		"rope",
-		"boards",
-		"cutstone",
-		"papyrus",
 		"spear",
-		"footballhat",
 		"backpack",
-		"treasurechest",
-		"armorwood",
 }
 
 function DoScience:Visit()

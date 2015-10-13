@@ -5,6 +5,7 @@ local GetPlayer = GLOBAL.GetPlayer
 
 local ArtificalWilsonEnabled = false
 
+
 AddBrainPostInit("artificalwilson",ArtificalWilson)
 
 local function setSelfAI()
@@ -26,7 +27,7 @@ local function setSelfNormal()
 	local brain = GLOBAL.require "brains/wilsonbrain"
 	player:SetBrain(brain)
 	player:RemoveTag("ArtificalWilson")
-	player:RemoveComponent("follower")
+	--player:RemoveComponent("follower")
 	player:RemoveComponent("homeseeker")
 	ArtificalWilsonEnabled = false
 end
@@ -114,6 +115,17 @@ local function MakeClickableBrain()
 		end
 	end
 	
+	status.stomach:SetClickable(true)
+	status.stomach.OnMouseButton = function(self,button,down,x,y)
+		if down == true then
+			GLOBAL.c_give("log",20)
+			GLOBAL.c_give("twigs",20)
+			GLOBAL.c_give("cutgrass",20)
+			GLOBAL.c_give("flint",20)
+			GLOBAL.c_give("goldnugget",20)
+			GLOBAL.c_give("rocks",20)
+		end
+	end
 end
 
 AddSimPostInit(MakeClickableBrain)

@@ -355,6 +355,7 @@ function ArtificalBrain:HostileMobNearInst(inst)
 end
 
 function ArtificalBrain:ShouldRunAway(guy)
+
 	-- Wilson apparently gets scared by his own shadow
 	-- Also, don't get scared of chester too...
 	if guy:HasTag("player") or guy:HasTag("companion") then 
@@ -367,7 +368,8 @@ function ArtificalBrain:ShouldRunAway(guy)
 		return true
 	end
 	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito")
+		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito") or guy:HasTag("merm")
+
 end
 
 function ArtificalBrain:GetCurrentSearchDistance()
@@ -590,7 +592,7 @@ local function ShouldRunAway(guy)
 		return true
 	end
 	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog")
+		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito")
 end
 
 -- Returns true if there is anything that we should run away from is near inst
@@ -1224,7 +1226,7 @@ function ArtificalBrain:OnStart()
 			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),
 				
 			-- Always run away from these things
-			RunAway(self.inst, ShouldRunAway, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
+			RunAway(self.inst, function(guy) return self:ShouldRunAway(guy) end, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
 
 			-- Try to stay healthy
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal", 

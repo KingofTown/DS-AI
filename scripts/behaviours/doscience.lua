@@ -96,7 +96,7 @@ function DoScience:Visit()
 						-- Add it to the prototype list.
 						if BUILD_PRIORITY[toBuild] == nil then
 							print("Don't know how to build " .. toBuild .. "...adding to build table")
-							table.insert(BUILD_PRIORITY,toBuild,1)
+							table.insert(BUILD_PRIORITY,1,toBuild)
 						end
 						if self.buildTable.onfail then 
 							self.buildTable.onfail()

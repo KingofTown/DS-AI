@@ -1,17 +1,21 @@
-require "behaviours/wander"
-require "behaviours/follow"
-require "behaviours/faceentity"
+
+
 require "behaviours/chaseandattack"
 require "behaviours/runaway"
 require "behaviours/doaction"
-require "behaviours/findlight"
+
 require "behaviours/panic"
-require "behaviours/chattynode"
-require "behaviours/leash"
+
 require "behaviours/managehunger"
 require "behaviours/managehealth"
 require "behaviours/findandactivate"
 require "behaviours/findresourceonground"
+require "behaviours/findresourcetoharvest"
+require "behaviours/findtreeorrock"
+require "behaviours/findormakelight"
+require "behaviours/doscience"
+
+require "brains/ai_helper_functions"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -113,13 +117,15 @@ end
 -- If we can craft all necessary resources to build something, returns true
 -- else, returns false
 -- Do not set recursive variable, it will be set on recursive calls
-local itemsNeeded = {}
+--local itemsNeeded = {}
 local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 
-	-- Reset the table
-	if recursive == nil then 
-		for k,v in pairs(itemsNeeded) do itemsNeeded[k]=nil end
+	-- Reset the table if it exists
+	if player.itemsNeeded and not recursive then
+		for k,v in pairs(player.itemsNeeded) do player.itemsNeeded[k]=nil end
 		recursive = 0
+	elseif player.itemsNeeded == nil then
+		player.itemsNeeded = {}
 	end
 	
 	if numToBuild == nil then numToBuild = 1 end
@@ -153,7 +159,7 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 		hasEnough, numHas = player.components.inventory:Has(iv.type,totalAmountNeeded)
 		
 		-- Subtract things already reserved from numHas
-		for i,j in pairs(itemsNeeded) do
+		for i,j in pairs(player.itemsNeeded) do
 			if j.prefab == iv.type then
 				numHas = math.max(0,numHas - 1)
 			end
@@ -166,7 +172,7 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 			-- call doesn't consider them valid.
 			-- Make it level 0 as we already have this good.
 			if numHas > 0 then
-				table.insert(itemsNeeded,1,{prefab=iv.type,amount=numHas,level=0})
+				table.insert(player.itemsNeeded,1,{prefab=iv.type,amount=numHas,level=0})
 			end
 			-- Recursive check...can we make this ingredient
 			local canCraft = CanIBuildThis(player,iv.type,needed,recursive+1)
@@ -176,12 +182,12 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 			else
 				-- We know the recipe to build this and have the goods. Add it to the list
 				-- This should get added in the recursive case
-				--table.insert(itemsNeeded,1,{prefab=iv.type, amount=needed, level=recursive, toMake=thingToBuild})
+				--table.insert(player.itemsNeeded,1,{prefab=iv.type, amount=needed, level=recursive, toMake=thingToBuild})
 			end
 		else
 			-- We already have enough to build this resource. Add these to the list
 			print("Adding " .. tostring(totalAmountNeeded) .. " of " .. iv.type .. " at level " .. tostring(recursive) .. " to the itemsNeeded list")
-			table.insert(itemsNeeded,1,{prefab=iv.type, amount=totalAmountNeeded, level=recursive, toMake=thingToBuild, toMakeNum=numToBuild})
+			table.insert(player.itemsNeeded,1,{prefab=iv.type, amount=totalAmountNeeded, level=recursive, toMake=thingToBuild, toMakeNum=numToBuild})
 		end
 	end
 	
@@ -230,14 +236,14 @@ local function BuildThis(player, thingToBuild, pos)
 		player.components.builder:UnlockRecipe(thingToBuild)
 	end
 	
-	if #itemsNeeded == 0 then
+	if not player.itemsNeeded or #player.itemsNeeded == 0 then
 		print("itemsNeeded is empty!")
 	end
 	
-	for k,v in pairs(itemsNeeded) do print(k,v) end
+	for k,v in pairs(player.itemsNeeded) do print(k,v) end
 		
 	-- TODO: Make sure we have the inventory space! 
-	for k,v in pairs(itemsNeeded) do
+	for k,v in pairs(player.itemsNeeded) do
 		-- Just go down the list. If level > 0, we need to build it
 		if v.level > 0 and v.toMake then
 			-- We should be able to build this...
@@ -357,6 +363,20 @@ function ArtificalBrain:RemoveFromIgnoreList(prefab)
 	end
 end
 
+-- Helpful function...just returns a point at a random angle 
+-- a distance dist away.
+function ArtificalBrain:GetPointNearThing(thing, dist)
+	local pos = Vector3(thing.Transform:GetWorldPosition())
+	if pos then
+		local theta = math.random() * 2 * PI
+		local radius = dist
+		local offset = FindWalkableOffset(pos, theta, radius, 12, true)
+		if offset then
+			return pos+offset
+		end
+	end
+end
+
 -- Just copied the function. Other one will go away soon.
 function ArtificalBrain:HostileMobNearInst(inst)
 	local pos = inst.Transform:GetWorldPosition()
@@ -379,7 +399,11 @@ function ArtificalBrain:ShouldRunAway(guy)
 		return true
 	end
 	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog")
+		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito")
+end
+
+function ArtificalBrain:GetCurrentSearchDistance()
+	return CurrentSearchDistance
 end
 
 function ArtificalBrain:IncreaseSearchDistance()
@@ -388,12 +412,11 @@ function ArtificalBrain:IncreaseSearchDistance()
 end
 
 function ArtificalBrain:ResetSearchDistance()
+	--print("ResetSearchDistance")
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
--- Some actions don't have a 'busy' stategraph. "DoingAction" is set whenever a BufferedAction
--- is scheduled and this callback will be triggered on both success and failure to denote 
--- we are done with that action
+
 local actionNumber = 0
 local function ActionDone(self, data)
 	local state = data.state
@@ -613,14 +636,8 @@ end
 
 -- Gather stuff
 
-local function IncreaseSearchDistance()
-	print("IncreaseSearchDistance")
-	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
-end
 
-local function ResetSearchDistance()
-	CurrentSearchDistance = MIN_SEARCH_DISTANCE
-end
+
 
 -- Find somewhere interesting to go to
 local function FindSomewhereNewToGo(inst)
@@ -630,7 +647,7 @@ local function FindSomewhereNewToGo(inst)
 	if wormhole then
 		print("Found a wormhole!")
 		inst.components.locomotor:GoToEntity(wormhole,nil,true)
-		ResetSearchDistance()
+		--ResetSearchDistance()
 	end
 end
 
@@ -664,226 +681,6 @@ local function FindHighPriorityThings(inst)
 	-- Filter out stuff
 end
 
-
-
-local function FindTreeOrRockAction(brain, action, continue)
-
-    --if brain.inst.sg:HasStateTag("prechop") then
-    --    return 
-    --end
-	if continue then print("Continue find tree action!") print(brain.inst.sg) end
-
-
-	-- We are currently chopping down a tree (or mining a rock). If it's still there...don't stop
-	if continue and currentTreeOrRock ~= nil and brain.inst:HasTag("DoingLongAction") then
-		-- Assume the tool in our hand is still the correct one. If we aren't holding anything, we're done
-		local tool = brain.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-		if not tool or not tool.components.tool:CanDoAction(currentTreeOrRock.components.workable.action) then
-			print("We can't continue this action!")
-			currentTreeOrRock = nil
-			brain.inst:RemoveTag("DoingLongAction")
-		else 
-			brain.inst:AddTag("DoingLongAction")
-			print("Continue long action")
-			return SetupBufferedAction(brain.inst,BufferedAction(brain.inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
-			--local action = SetupBufferedAction(brain.inst,BufferedAction(brain.inst, currentTreeOrRock, currentTreeOrRock.components.workable.action,tool),5)
-			--brain.inst.components.locomotor:PushAction(action,true,false)
-			--return true
-		end
-		
-	else
-		--print("Not doing long action")
-		brain.inst:RemoveTag("DoingLongAction")
-		currentTreeOrRock = nil
-		-- If we came in from a continue node...don't find a new tree, that would be silly.
-		if continue then 
-			print("The tree has fallen. Not continuing")
-			return 
-		end
-	end
-	
-	-- Do we need logs? (always)
-	-- Don't chop unless we need logs (this is hacky)
-	if action == ACTIONS.CHOP and brain.inst.components.inventory:Has("log",20) then
-		return
-	end
-
-	
-	-- TODO, this will find all mineable structures (ice, rocks, sinkhole)
-	local target = FindEntity(brain.inst, CurrentSearchDistance, function(item)
-			if not item.components.workable then return false end
-			if not item.components.workable:IsActionValid(action) then return false end
-			
-			-- TODO: Put ignored prefabs
-			if brain:OnIgnoreList(item.prefab) then return false end
-			-- We will ignore some things forever
-			if brain:OnIgnoreList(item.entity:GetGUID()) then return false end
-			-- Don't go near things with hostile dudes
-			if HostileMobNearInst(item) then
-				print("Ignoring " .. item.prefab .. " as there is something spooky by it")
-				return false 
-			end
-			
-			-- Skip this if it only drops stuff we are full of
-			-- TODO, get the lootdroper rather than knowing what prefab it is...
-			if item.prefab and item.prefab == "rock1" then
-				return not brain.inst.components.inventory:Has("flint",20)
-			elseif item.prefab and item.prefab == "rock2" then
-				return not brain.inst.components.inventory:Has("goldnugget",20)
-			elseif item.prefab and item.prefab == "rock_flintless" then
-				return not brain.inst.components.inventory:Has("rocks",40)
-			end
-
-			-- TODO: Determine if this is across water or something...
-			--local dist = brain.inst:GetDistanceSqToInst(item)
-			--if dist > (CurrentSearchDistance) then 
-			--	return false
-			--end
-			
-			-- Found one
-			return true
-	
-		end)
-	
-	if target then
-		local equiped = brain.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-		local alreadyEquipped = false
-		local axe = nil
-		if equiped and equiped.components.tool and equiped.components.tool:CanDoAction(action) then
-			axe = equiped
-			alreadyEquipped = true
-		else 
-			axe = brain.inst.components.inventory:FindItem(function(item) return item.components.equippable and item.components.tool and item.components.tool:CanDoAction(action) end)
-		end
-		-- We are holding an axe or have one in inventory. Let's chop
-		if axe then
-			if not alreadyEquipped then
-				brain.inst.components.inventory:Equip(axe)
-			end
-			-- Get this before we reset it
-			local timeout = CurrentSearchDistance
-			currentTreeOrRock = target
-			brain.inst:AddTag("DoingLongAction")
-			ResetSearchDistance()
-			return SetupBufferedAction(brain.inst,BufferedAction(brain.inst, target, action,axe),timeout)
-			-- Craft one if we can
-		else
-			local thingToBuild = nil
-			if action == ACTIONS.CHOP then
-				thingToBuild = "axe"
-			elseif action == ACTIONS.MINE then
-				thingToBuild = "pickaxe"
-			end
-			
-			if thingToBuild and brain.inst.components.builder and brain.inst.components.builder:CanBuild(thingToBuild) then
-				--brain.inst.components.builder:DoBuild(thingToBuild)
-				local buildAction = BufferedAction(brain.inst,brain.inst,ACTIONS.BUILD,nil,nil,thingToBuild,nil)
-				brain.inst:PushBufferedAction(buildAction)
-			else
-				--addRecipeToGatherList(thingToBuild,false)
-			end
-		end
-	end
-end
-
-
-local function FindResourceToHarvest(brain)
-	--print("FindResourceToHarvest")
-	--if not brain.inst.components.inventory:IsFull() then
-		local target = FindEntity(brain.inst, CurrentSearchDistance, function(item)
-					
-					if item.components.pickable and item.components.pickable:CanBePicked() and item.components.pickable.caninteractwith then
-						local theProductPrefab = item.components.pickable.product
-						if theProductPrefab == nil then
-							return false
-						end
-						
-						-- If we have some of this product, it will override the isFull check
-						local haveItem = brain.inst.components.inventory:FindItem(function(invItem) return theProductPrefab == invItem.prefab end)
-						
-						if brain:OnIgnoreList(item.components.pickable.product) then
-							return false
-						end
-						-- This entity is to be ignored
-						if brain:OnIgnoreList(item.entity:GetGUID()) then return false end
-						
-						if HostileMobNearInst(item) then 
-							print("Ignoring " .. item.prefab .. " as there is a monster by it")
-							return false 
-						end
-						
-						-- Check to see if we have a full stack of this item
-						local theProduct = brain.inst.components.inventory:FindItem(function(item) return (item.prefab == theProductPrefab) end)
-						if theProduct then
-							-- If we don't have a full stack of this...then pick it up (if not stackable, we will hold 2 of them)
-							return not brain.inst.components.inventory:Has(theProductPrefab,theProduct.components.stackable and theProduct.components.stackable.maxsize or 2)
-						else
-							-- Don't have any of this...lets get some (only if we have room)						
-							return not brain.inst.components.inventory:IsFull()
-						end
-					end
-					-- Default case...probably not harvest-able. Return false.
-					return false
-				end)
-
-		if target then
-			local timeout = CurrentSearchDistance
-			ResetSearchDistance()
-			return SetupBufferedAction(brain.inst,BufferedAction(brain.inst,target,ACTIONS.PICK),timeout)
-		end
-	--end
-end
-
--- Do an expanding search. Look for things close first.
-
-local function OldFindResourceOnGround(brain)
-	--print("FindResourceOnGround")
-
-	-- TODO: Only have up to 1 stack of the thing (modify the findentity fcn)
-	local target = FindEntity(brain.inst, CurrentSearchDistance, function(item)
-						-- Do we have a slot for this already
-						local haveItem = brain.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
-											
-						-- TODO: Need to find out if this is across a river or something...
-						--local dist = brain.inst:GetDistanceSqToInst(item)
-						--if dist > (CurrentSearchDistance*CurrentSearchDistance) then
-						--	print("Skipping " .. item.prefab .. " as it's too far: [" .. dist .. ", " .. CurrentSearchDistance .. "]")
-						--	return false
-						--end
-						
-						-- Ignore these dang trinkets
-						if item.prefab and string.find(item.prefab, "trinket") then return false end
-						-- We won't need these thing either.
-						if item.prefab and string.find(item.prefab, "teleportato") then return false end
-						
-						-- Ignore things near scary dudes
-						if HostileMobNearInst(item) then 
-							print("Ignoring " .. item.prefab .. " as there is something scary near it")
-							return false 
-						end
-			
-						if item.components.inventoryitem and 
-							item.components.inventoryitem.canbepickedup and 
-							not item.components.inventoryitem:IsHeld() and
-							item:IsOnValidGround() and
-							-- Ignore things we have a full stack of
-							not brain.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 2) and
-							-- Ignore this unless it fits in a stack
-							not (brain.inst.components.inventory:IsFull() and haveItem == nil) and
-							not brain:OnIgnoreList(item.prefab) and
-							not brain:OnIgnoreList(item.entity:GetGUID()) and
-							not item:HasTag("prey") and
-							not item:HasTag("bird") then
-								return true
-						end
-					end)
-	if target then
-		local timeout = CurrentSearchDistance
-		ResetSearchDistance()
-		return SetupBufferedAction(brain.inst,BufferedAction(brain.inst, target, ACTIONS.PICKUP),timeout)
-	end
-
-end
 
 -----------------------------------------------------------------------
 -- COMBAT
@@ -941,7 +738,7 @@ local function GoForTheEyes(inst)
 	-- TODO: What do we try to make? Only seeing if we can make a spear here as I don't consider an axe or 
 	--       a pickaxe a valid weapon. Should probably excluce
 	if highestDamageWeapon == nil or (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) then
-		if not CanIBuildThis(inst,"spear") and inst.components.combat.target == nil then
+		if not CanPlayerBuildThis(inst,"spear") and inst.components.combat.target == nil then
 			-- TODO: Rather than checking to see if we have a combat target, should make
 			--       sure the closest hostile is X away so we have time to craft one.
 			--       What I do not want is to just keep trying to make one while being attacked.
@@ -1171,174 +968,6 @@ local function FightBack(inst)
 end
 ----------------------------- End Combat ---------------------------------------
 
-
-local function IsNearLightSource(inst)
-	local source = GetClosestInstWithTag("lightsource", inst, 20)
-	if source then
-		local dsq = inst:GetDistanceSqToInst(source)
-		if dsq > 25 then
-			print("It's too far away!")
-			return false 
-		end
-		
-		-- Find the source of the light
-		local parent = source.entity:GetParent()
-		if parent then
-			if parent.components.fueled and parent.components.fueled:GetPercent() < .25 then
-				return false
-			end
-		end
-		-- Source either has no parent or doesn't need fuel. We're good.
-		return true
-	end
-
-	return false
-end
-
-local function MakeLightSource(inst)
-	
-	if inst:HasTag("DoingAction") then 
-		print("Currently doing an action....lets hope it's building a fire...wilson")
-		local theAction = inst:GetBufferedAction()
-		if theAction then
-			print(theAction:__tostring())
-			if theAction.action ~= ACTIONS.BUILD then
-				print("uhh, shit shit, what am I doing?!?")
-				-- Cancel this action!
-				-- This should push the fail, which triggers onfail which removes the
-				-- DoingAction tag we have set
-				inst:ClearBufferedAction()
-			end
-		else
-			-- Ummm, we don't have anything buffered. That's not good. Clear the tag
-			inst:RemoveTag("DoingAction")
-		end
-		
-		-- In all of the above cases, return true so we come right back to this node
-		return true
-	end
-	-- If there is one nearby, move to it
-	
-	print("Need to make light!")
-	local source = GetClosestInstWithTag("lightsource", inst, 30)
-	if source then
-		print("Found a light source")
-		local dsq = inst:GetDistanceSqToInst(source)
-		if dsq >= 15 then
-			local pos = GetPointNearThing(source,2)
-			if pos then
-				inst.components.locomotor:GoToPoint(pos,nil,true)
-			end
-		end
-		
-		local parent = source.entity:GetParent()
-		if parent and not parent.components.fueled then
-			-- Found a light source...and it doesn't need fuel. All is good.
-			return true
-		end
-
-	end
-	
-	-- 1) Check for a firepit to add fuel
-	local firepit = GetClosestInstWithTag("campfire",inst,15)
-	if firepit then
-		-- It's got fuel...nothing to do
-		if firepit.components.fueled:GetPercent() > .25 then 
-			-- Return false so we do stuff past this node
-			return false
-		end
-		
-		-- Find some fuel in our inventory to add
-		local allFuelInInv = inst.components.inventory:FindItems(function(item) return item.components.fuel and 
-																				not item.components.armor and
-																				item.prefab ~= "livinglog" and
-																				firepit.components.fueled:CanAcceptFuelItem(item) end)
-		
-		-- Add some fuel to the fire.
-		local bestFuel = nil
-		for k,v in pairs(allFuelInInv) do
-			-- TODO: This is a bit hackey...but really, logs are #1
-			if v.prefab == "log" then
-				inst:PushBufferedAction(BufferedAction(inst, firepit, ACTIONS.ADDFUEL, v))
-				-- Return true to come back here and make sure all is good
-				return true
-			else
-				bestFuel = v
-			end
-		end
-		-- Don't add this stuff unless the fire is really sad
-		if bestFuel and firepit.components.fueled:GetPercent() < .15 then
-			--return BufferedAction(inst, firepit, ACTIONS.ADDFUEL, bestFuel)
-			inst:PushBufferedAction(inst,firepit,ACTIONS.ADDFUEL,bestFuel)
-			-- Return true to come back here and make sure all is still good
-			return true
-		end
-		
-		-- We don't have enough fuel. Let it burn longer before executing backup plan
-		if firepit.components.fueled:GetPercent() > .1 then 
-			-- Return false to let the brain continue to other actions rather than
-			-- to keep checking
-			return false 
-		end
-	end
-	
-	-- No firepit (or no fuel). Can we make one?
-	if inst.components.builder:CanBuild("campfire") then
-		-- Don't build one too close to burnable things. 
-		-- TODO: This should be a while loop until we find a valid spot
-		local burnable = GetClosestInstWithTag("burnable",inst,3)
-		local pos = nil
-		if burnable then
-			print("Don't want to build campfire too close")
-			pos = GetPointNearThing(burnable,4)
-		end
-		--inst.components.builder:DoBuild("campfire",pos)
-		-- Do a buffered action here to attach the onsuccess and onfail listeners
-		local action = SetupBufferedAction(inst,BufferedAction(inst,nil,ACTIONS.BUILD,nil,pos,"campfire",nil,1))
-		-- Need to push this to the locomotor so we walk to the right position
-		print("pushing locomotor action");
-		inst.components.locomotor:PushAction(action, true);
-		--inst:PushBufferedAction(action)
-		return true
-	end
-	
-	-- Can't make a campfire...torch it is (hopefully)
-	
-	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if not haveTorch then
-		-- Need to make one!
-		if inst.components.builder:CanBuild("torch") then
-			--inst.components.builder:DoBuild("torch")
-			local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,"torch",nil)
-			inst:PushBufferedAction(action)
-		end
-	end
-	-- Find it again
-	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if haveTorch then
-		inst.components.inventory:Equip(haveTorch)
-		
-		return true
-	end
-	
-	-- Uhhh....we couldn't add fuel and we didn't have a torch. Find fireflys? 
-	print("Shit shit shit, it's dark!!!")
-	local lastDitchEffort = GetClosestInstWithTag("lightsource", inst, 50)
-	if lastDitchEffort then
-		local pos = GetPointNearThing(lastDitchEffort,2)
-		if pos then
-			inst.components.locomotor:GoToPoint(pos,nil,true)
-		end
-	else
-		print("So...this is how I die")
-		return true
-	end
-	
-	-- Return true so we come back to this node ASAP!
-	return true
-
-end
-
 local function MakeTorchAndKeepRunning(inst)
 	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
 	if not haveTorch then
@@ -1399,7 +1028,7 @@ local function MidwayThroughDusk()
 end
 
 local function IsBusy(inst)
-	return inst.sg:HasStateTag("busy") or inst:HasTag("DoingAction")
+	return inst.sg:HasStateTag("busy")
 end
 
 
@@ -1450,31 +1079,6 @@ function ArtificalBrain:OnStart()
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
 		PriorityNode{
-			--RunAway(self.inst, "hostile", 15, 30),
-			-- We've been attacked. Equip a weapon and fight back.
-			
-			-- Moved these to root
-			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
-			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
-			--WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-			--	ChaseAndAttack(self.inst,20)),
-			--DoAction(self.inst, function() print("a") end, "printSG", true),
-			
-			--WhileNode( function() return currentTreeOrRock ~= nil and (self.inst.sg:HasStateTag("chopping") or self.inst.sg:HasStateTag("prechop") )end, "keepGoing",
-			--	DoAction(self.inst, function() FindTreeOrRockAction(self.inst,nil,true) end, "continueAction",true)),
-			
-			-- Try it with an action node
-			--IfNode(function() print("IfNode")return currentTreeOrRock ~= nil and (self.inst.sg:HasStateTag("chopping") or self.inst.sg:HasStateTag("prechop")) end, "continueLongAction",
-			--	ActionNode(function() print("ActionNode")return FindTreeOrRockAction(self.inst,nil,true) end, "continueAction")),
-			
-			-- If we started doing a long action, keep doing that action
-			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self,nil,true) end, "continueAction", true) 	),
-			
-			-- Make sure we eat
-			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
-			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
-			--IfNode(function() return not IsBusy(self.inst) and self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
 			
 			-- Eat something if hunger gets below .5
 			ManageHunger(self.inst, .5),
@@ -1488,29 +1092,28 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
 			-- Collect stuff
-			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-			--	DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),	
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-				FindResourceOnGround(self.inst, CurrentSearchDistance)),
+			SelectorNode{
+
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
+					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
+					FindResourceToHarvest(self.inst, self.GetCurrentSearchDistance)),
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.MINE)),
 				
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-				DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP, false) end, "chopTree", true)),
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.MINE, false) end, "mineRock", true)),
-				
-			-- Can't find anything to do...increase search distance
-			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
-				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+					-- Finally, if none of those succeed, increase the search distance for
+					-- the next loop.
+					-- Want this to fail always so we don't increase to max.
+				IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
+					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),
+			},
 				
 			-- TODO: Need a good wander function for when searchdistance is at max.
 			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
 				DoAction(self.inst, function() return FindSomewhereNewToGo(self.inst) end, "lookingForSomewhere", true)),
-				
 
-			-- No plan...just walking around
-			--Wander(self.inst, nil, 20),
 		},.25)
 		
 
@@ -1529,24 +1132,27 @@ function ArtificalBrain:OnStart()
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
 
-			-- Harvest stuff
-			--IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-			--	DoAction(self.inst, function() return FindResourceOnGround(self) end, "pickup_ground", true )),	
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-				FindResourceOnGround(self.inst, CurrentSearchDistance)),
-				
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.CHOP) end, "chopTree", true)),	
-				
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-				DoAction(self.inst, function() return FindResourceToHarvest(self) end, "harvest", true )),
-			IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-				DoAction(self.inst, function() return FindTreeOrRockAction(self, ACTIONS.MINE) end, "mineRock", true)),
-				
-			-- Can't find anything to do...increase search distance
-			IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
-				DoAction(self.inst, function() return IncreaseSearchDistance() end,"lookingForStuffToDo", true)),
+			SelectorNode{
 
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
+					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
+					
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
+					
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
+					FindResourceToHarvest(self.inst, self.GetCurrentSearchDistance)),
+
+				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
+					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.MINE)),
+				
+				IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
+					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),
+			},
+			
+			-- This is super hacky.
+			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
+				DoAction(self.inst, function() return FindSomewhereNewToGo(self.inst) end, "lookingForSomewhere", true)),
 			-- No plan...just walking around
 			--Wander(self.inst, nil, 20),
         },.2)
@@ -1573,24 +1179,16 @@ function ArtificalBrain:OnStart()
 				-- If we're home (or at our temp camp) start cooking some food.
 				
 				
-		},.5)
+		},.25)
 		
-	-- Things to do during the night
-	--[[
-		1) Light a fire if there is none close by
-		2) Stay near fire. Maybe cook?
-	--]]
 	local night = WhileNode( function() return clock and clock:IsNight() end, "IsNight",
         PriorityNode{
 			-- If we aren't home but we have a home, make a torch and keep running!
 			--WhileNode(function() return HasValidHome(self.inst) and not AtHome(self.inst) end, "runHomeJack",
 			--	DoAction(self.inst, function() return MakeTorchAndKeepRunning(self.inst) end, "make torch", true)),
 				
-			-- Must be near light! 	
-			--IfNode( function() return not IsNearLightSource(self.inst) end, "no light!!!",
-			--	DoAction(self.inst, function() return MakeLightSource(self.inst) end, "making light", true)),
-			IfNode(function() return not IsNearLightSource(self.inst) end, "no light!!!",
-				ConditionNode(function() return MakeLightSource(self.inst) end, "making light")),
+			-- Make sure there's light!
+			MaintainLightSource(self.inst, 30),
 				
 			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
 				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
@@ -1632,7 +1230,8 @@ function ArtificalBrain:OnStart()
 				
 			-- New Combat function. 
 			-- GoForTheEyes will set our combat target. If it returns true, kill
-			-- TODO: Don't do this at night.
+			-- TODO: Don't do this at night. He will run out into the darkness and override
+			--       his need to stay in the light!
 			WhileNode(function() return GoForTheEyes(self.inst) end, "GoForTheEyes", 
 				ChaseAndAttack(self.inst, 10,30)),
 			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),
@@ -1651,8 +1250,11 @@ function ArtificalBrain:OnStart()
 			
 			-- Prototype things whenever we get a chance
 			-- Home is defined as our science machine...
-			IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) and not self.inst.currentBufferedBuild end, "atHome", 
-				DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
+			--IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) and not self.inst.currentBufferedBuild end, "atHome", 
+			--	DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
+			
+			-- If near a science machine, wilson will prototype stuff!
+			DoScience(self.inst),
 				
 			-- Always fight back or run. Don't just stand there like a tool
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",

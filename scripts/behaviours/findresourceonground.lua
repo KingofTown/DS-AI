@@ -1,22 +1,45 @@
-FindResourceOnGround = Class(BehaviourNode, function(self, inst, searchDistance)
+FindResourceOnGround = Class(BehaviourNode, function(self, inst, searchDistanceFn)
     BehaviourNode._ctor(self, "FindResourceOnGround")
     self.inst = inst
-	self.distance = searchDistance
+	self.distance = searchDistanceFn
+	
+	self.locomotorFailed = function(inst, data)
+		local theAction = data.action or "[Unknown]"
+		local theReason = data.reason or "[Unknown]"
+		print("FindResourceOnGround: Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+        self:OnFail() 
+    end
+	
+	self.onReachDest = function(inst,data)
+		local target = data.target
+		if target and self.action and target == self.action.target then
+			self.reachedDestination = true
+		end
+	end
+	
+	self.inst:ListenForEvent("actionfailed", self.locomotorFailed)
+	self.inst:ListenForEvent("onreachdestination", self.onReachDest)
 end)
 
--- Returned from the ACTIONS.EAT
+function FindResourceOnGround:OnStop()
+	self.inst:RemoveEventCallback("actionfailed", self.locomotorFailed)
+end
+
 function FindResourceOnGround:OnFail()
+	--print(self.action:__tostring() .. " failed!")
     self.pendingstatus = FAILED
 end
 function FindResourceOnGround:OnSucceed()
+	--print(self.action:__tostring() .. " complete!")
     self.pendingstatus = SUCCESS
 end
 
 
 function FindResourceOnGround:Visit()
-
+	--print("FindResourceOnGround:Visit() - " .. tostring(self.status))
     if self.status == READY then
-		local target = FindEntity(self.inst, self.distance, function(item)
+		self.reachedDestination = nil
+		local target = FindEntity(self.inst, self.distance(), function(item)
 						-- Do we have a slot for this already
 						local haveItem = self.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
 											
@@ -28,7 +51,7 @@ function FindResourceOnGround:Visit()
 						
 						-- Ignore things near scary dudes
 						if self.inst.brain:HostileMobNearInst(item) then 
-							print("Ignoring " .. item.prefab .. " as there is something scary near it")
+							--print("Ignoring " .. item.prefab .. " as there is something scary near it")
 							return false 
 						end
 			
@@ -36,8 +59,8 @@ function FindResourceOnGround:Visit()
 							item.components.inventoryitem.canbepickedup and 
 							not item.components.inventoryitem:IsHeld() and
 							item:IsOnValidGround() and
-							-- Ignore things we have a full stack of
-							not self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 2) and
+							-- Ignore things we have a full stack of (or one of if it doesn't stack)
+							not self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 1) and
 							-- Ignore this unless it fits in a stack
 							not (self.inst.components.inventory:IsFull() and haveItem == nil) and
 							not self.inst.brain:OnIgnoreList(item.prefab) and
@@ -55,7 +78,7 @@ function FindResourceOnGround:Visit()
 		self.pendingstatus = nil
 		self.inst.components.locomotor:PushAction(action, true)
 		self.inst.brain:ResetSearchDistance()
-		self.status = SUCCESS
+		self.status = RUNNING
 		return
 	end
 	
@@ -66,6 +89,9 @@ function FindResourceOnGround:Visit()
 		if self.pendingstatus then
 			self.status = self.pendingstatus
 		elseif not self.action:IsValid() then
+			self.status = FAILED
+		elseif not self.inst.components.locomotor:HasDestination() and not self.reachedDestination then
+			print("We have no destination and we haven't reached it yet! We're stuck!")
 			self.status = FAILED
 		end
     end

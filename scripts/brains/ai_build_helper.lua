@@ -1,11 +1,22 @@
 
 
+-- Copied straight from widgetutil.lua
+function CanPrototypeRecipe(recipetree, buildertree)
+    for k,v in pairs(recipetree) do
+        if buildertree[tostring(k)] and recipetree[tostring(k)] and
+        recipetree[tostring(k)] > buildertree[tostring(k)] then
+                return false
+        end
+    end
+    return true
+end
+
+
 -- Makes sure we have the right tech level.
 -- If we don't have a resource, checks to see if we can craft it/them
 -- If we can craft all necessary resources to build something, returns true
 -- else, returns false
 -- Do not set recursive variable, it will be set on recursive calls
-
 -- If you want this built, have the Crafting behaviour do it
 function CanPlayerBuildThis(player, thingToBuild, numToBuild, recursive)
 

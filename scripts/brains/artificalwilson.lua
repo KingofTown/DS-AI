@@ -80,19 +80,6 @@ end
 ---------------------------------------------------------------------------------
 
 
---------------------------------------------------------------------------------
-
--- Copied straight from widgetutil.lua
-local function CanPrototypeRecipe(recipetree, buildertree)
-    for k,v in pairs(recipetree) do
-        if buildertree[tostring(k)] and recipetree[tostring(k)] and
-        recipetree[tostring(k)] > buildertree[tostring(k)] then
-                return false
-        end
-    end
-    return true
-end
-
 -- Makes sure we have the right tech level.
 -- If we don't have a resource, checks to see if we can craft it/them
 -- If we can craft all necessary resources to build something, returns true

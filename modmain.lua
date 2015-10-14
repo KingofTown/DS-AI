@@ -5,6 +5,7 @@ local GetPlayer = GLOBAL.GetPlayer
 
 local ArtificalWilsonEnabled = false
 
+
 AddBrainPostInit("artificalwilson",ArtificalWilson)
 
 local function setSelfAI()
@@ -26,7 +27,7 @@ local function setSelfNormal()
 	local brain = GLOBAL.require "brains/wilsonbrain"
 	player:SetBrain(brain)
 	player:RemoveTag("ArtificalWilson")
-	player:RemoveComponent("follower")
+	--player:RemoveComponent("follower")
 	player:RemoveComponent("homeseeker")
 	ArtificalWilsonEnabled = false
 end
@@ -114,43 +115,17 @@ local function MakeClickableBrain()
 		end
 	end
 	
+	status.stomach:SetClickable(true)
+	status.stomach.OnMouseButton = function(self,button,down,x,y)
+		if down == true then
+			GLOBAL.c_give("log",20)
+			GLOBAL.c_give("twigs",20)
+			GLOBAL.c_give("cutgrass",20)
+			GLOBAL.c_give("flint",20)
+			GLOBAL.c_give("goldnugget",20)
+			GLOBAL.c_give("rocks",20)
+		end
+	end
 end
 
 AddSimPostInit(MakeClickableBrain)
-
--- Killer Bees and Beefalo in heat should be marked as hostile!! 
-
---[[
-On second thought, don't do this. We will actively seek out these things if this is true.
-Let's just run from things that are 'scarytoprey' (killerbees and beefalo in heat are marked this)
-
-local function MarkKillerBeeHostile(inst)
-	inst:AddTag("hostile")
-end
-
-AddPrefabPostInit("killerbee",MarkKillerBeeHostile)
-
-
-
-local function MarkBeefaloInHeatHostile(inst)
-
-	local moodfn = inst.OnEnterMood
-	local leavemoodfn = inst.OnLeaveMood
-	
-	local newMoodFn = function(self,inst)
-		moodfn(self,inst)
-		inst:AddTag("hostile")
-	end
-	
-	local newLeaveFn = function(self,inst)
-		leavemoodfn(self,inst)
-		inst:RemoveTag("hostile")
-	end
-	
-	inst.OnEnterMood = newMoodFn
-	inst.OnLeaveMood = newLeaveFn
-
-end
-AddPrefabPostInit("beefalo",MarkBeefaloInHeatHostile)
---]]
-

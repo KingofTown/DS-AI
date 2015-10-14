@@ -162,34 +162,3 @@ function GenerateBufferedBuildOrder(player, thingToBuild, pos, onSuccess, onFail
 	return bufferedBuildList
 
 end
-
----------------------------------------------------------------------------------------
-
--- Only call this while in or transitioning to a RUNNING state in a priority node
--- This will build whatever is defined in the bufferedActions and call onsuccess or onfail
--- when complete
-function BuildInNode(player, thingToBuild, pos, onsuccess, onfail)
-	local bufferedActions = GenerateBufferedBuildOrder(player, thingToBuild, pos, onSuccess, onFail)
-
-	local buildEmpty = false
-
-	local function DoNextAction()
-		if bufferedActions then
-			local action = table.remove(bufferedActions,1)
-			if not action then
-				print("PushNextAction: action empty")
-				-- The list is empty.
-				buildEmpty = true
-				return
-			end
-			
-			action:AddSuccessAction(function() DoNextAction() end)
-			player.inst.components.locomotor:PushAction(action, true)
-		end
-	end
-
-	if bufferedActions then
-		DoNextAction()
-	end
-
-end

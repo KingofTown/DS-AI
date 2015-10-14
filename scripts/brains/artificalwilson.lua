@@ -16,7 +16,8 @@ require "behaviours/findtreeorrock"
 require "behaviours/findormakelight"
 require "behaviours/doscience"
 
-require "brains/ai_helper_functions"
+require "brains/ai_build_helper"
+require "brains/ai_combat_helper"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -24,26 +25,6 @@ local SEARCH_SIZE_STEP = 10
 local RUN_AWAY_SEE_DIST = 5
 local RUN_AWAY_STOP_DIST = 10
 local CurrentSearchDistance = MIN_SEARCH_DISTANCE
-
--- The order in which we prioritize things to build
--- Stuff to be collected should follow the priority of the build order
--- Have things to build once, build many times, etc
--- Denote if we should always keep spare items (to build fire, etc)
-local BUILD_PRIORITY = {
-		"axe",
-		"pickaxe",
-		"rope",
-		"boards",
-		"cutstone",
-		"papyrus",
-		"spear",
-		"footballhat",
-		"backpack",
-		"treasurechest",
-		"armorwood",
-}
-
-
 
 -- What to gather. This is a simple FIFO. Highest priority will be first in the list.
 local GATHER_LIST = {}
@@ -291,51 +272,6 @@ local function BuildThis(player, thingToBuild, pos)
 
 end
 
--- Finds things we can prototype and does it.
--- TODO, should probably get a prototype order list somewhere...
-
-local function PrototypeStuff(inst)
-	print("PrototypeStuff")
-	local prototyper = inst.components.builder.current_prototyper;
-	if not prototyper then
-		print("Not by a science machine...nothing to do")
-		return
-	end
-	
-	print("Standing next to " .. prototyper.prefab .. " ...what can I build...")
-	
-	local tech_level = inst.components.builder.accessible_tech_trees
-
-	for k,v in pairs(BUILD_PRIORITY) do
-		-- Looking for things we can prototype
-		local recipe = GetRecipe(v)
-		
-		if not inst.components.builder:KnowsRecipe(v) then
-			print("Don't know how to build " .. v)
-			-- Will check our inventory for all items needed to build this
-			if CanIBuildThis(inst,v) and CanPrototypeRecipe(recipe.level,tech_level) then
-				-- Will push the buffered event to build this thing
-				-- TODO: Add a position for non inventory items
-				BuildThis(inst,v)
-				return
-			end
-		end
-	end
-end
-
--- Returns a point somewhere near thing at a distance dist
-local function GetPointNearThing(thing, dist)
-	local pos = Vector3(thing.Transform:GetWorldPosition())
-
-	if pos then
-		local theta = math.random() * 2 * PI
-		local radius = dist
-		local offset = FindWalkableOffset(pos, theta, radius, 12, true)
-		if offset then
-			return pos+offset
-		end
-	end
-end
 
 ------------------------------------------------------------------------------------------------
 
@@ -388,6 +324,7 @@ function ArtificalBrain:HostileMobNearInst(inst)
 end
 
 function ArtificalBrain:ShouldRunAway(guy)
+
 	-- Wilson apparently gets scared by his own shadow
 	-- Also, don't get scared of chester too...
 	if guy:HasTag("player") or guy:HasTag("companion") then 
@@ -400,7 +337,8 @@ function ArtificalBrain:ShouldRunAway(guy)
 		return true
 	end
 	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito")
+		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito") or guy:HasTag("merm")
+
 end
 
 function ArtificalBrain:GetCurrentSearchDistance()
@@ -408,12 +346,11 @@ function ArtificalBrain:GetCurrentSearchDistance()
 end
 
 function ArtificalBrain:IncreaseSearchDistance()
-	print("IncreaseSearchDistance")
 	CurrentSearchDistance = math.min(MAX_SEARCH_DISTANCE,CurrentSearchDistance + SEARCH_SIZE_STEP)
+		print("IncreaseSearchDistance to: " .. tostring(CurrentSearchDistance))
 end
 
 function ArtificalBrain:ResetSearchDistance()
-	--print("ResetSearchDistance")
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
 end
 
@@ -484,20 +421,6 @@ end
 
 --------------------------------------------------------------------------------
 
-
-
------------------------------------------------------------------------
--- Inventory Management
-
--- Stuff to do when our inventory is full
--- Eat more stuff
--- Drop useless stuff
--- Craft stuff?
--- Make a chest? 
--- etc
-local function ManageInventory(inst)
-
-end
 
 -- Eat sanity restoring food
 -- Put sanity things on top of list when sanity is low
@@ -570,6 +493,7 @@ local function ListenForBuild(inst,data)
 	end
 end
 
+-- TODO: Move this to a behaviour node
 local function FindValidHome(inst)
 
 	if not HasValidHome(inst) and inst.components.homeseeker then
@@ -578,7 +502,7 @@ local function FindValidHome(inst)
 		-- For now, it's going to be the first place we build a science machine
 		if inst.components.builder:CanBuild("researchlab") then
 			-- Find some valid ground near us
-			local machinePos = GetPointNearThing(inst,3)		
+			local machinePos = inst.brain:GetPointNearThing(inst,3)		
 			if machinePos ~= nil then
 				print("Found a valid place to build a science machine")
 				--return SetupBufferedAction(inst, BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil))
@@ -605,40 +529,6 @@ local function FindValidHome(inst)
 	end
 end
 
----------------------------------------------------------------------------
--- Run away
-
--- Things to pretty much always run away from
--- TODO: Make this a dynamic list
-local function ShouldRunAway(guy)
-	-- Wilson apparently gets scared by his own shadow
-	-- Also, don't get scared of chester too...
-	if guy:HasTag("player") or guy:HasTag("companion") then 
-		return false 
-	end
-	
-	-- Angry worker bees don't have the special tag...so check to see if it's spring
-	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
-	if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
-		return true
-	end
-	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
-		guy:HasTag("scarytoprey") or guy:HasTag("frog")
-end
-
--- Returns true if there is anything that we should run away from is near inst
-local function HostileMobNearInst(inst)
-	local pos = inst.Transform:GetWorldPosition()
-	if pos then
-		return FindEntity(inst,RUN_AWAY_SEE_DIST,function(guy) return ShouldRunAway(guy) end) ~= nil
-	end
-	return false
-end
-
--- Gather stuff
-
-
-
 
 -- Find somewhere interesting to go to
 local function FindSomewhereNewToGo(inst)
@@ -652,352 +542,12 @@ local function FindSomewhereNewToGo(inst)
 	end
 end
 
-
-local currentTreeOrRock = nil
-local function OnFinishedWork(inst,data)
-	print("Work finished on " .. data.target.prefab)
-	currentTreeOrRock = nil
-	inst:RemoveTag("DoingLongAction")
-end
-
-
--- Harvest Actions
--- TODO: Implement this 
-local function FindHighPriorityThings(inst)
-    --local ents = TheSim:FindEntities(x,y,z, radius, musttags, canttags, mustoneoftags)
-	local p = Vector3(inst.Transform:GetWorldPosition())
-	if not p then return end
-	-- Get ALL things around us
-	local things = FindEntities(p.x,p.y,p.z, CurrentSearchDistance/2, nil, {"player"})
-	
-	local priorityItems = {}
-	for k,v in pairs(things) do
-		if v ~= inst and v.entity:IsValid() and v.entity:IsVisible() then
-			if IsInPriorityTable(v) then
-				table.insert(priorityItems,v)
-			end
-		end
-	end
-	
-	-- Filter out stuff
-end
-
-
------------------------------------------------------------------------
--- COMBAT
-
-local function GoForTheEyes(inst)
---[[
-1) Find the closest hostile mob close to me (within 30?)
-	1.5) Maintain a 'do not engage' type list? 
-2) Find all like mobs around that one (or maybe just all 'hostile' mobs around it)
-3) Calculate damage per second they are capabable of doing to me
-4) Calculate how long it will take me to kill with my current weapon and their health
-5) Engage if under some threshold
---]]
-
-	local closestHostile = GetClosestInstWithTag("hostile", inst, 20)
-	
-	-- No hostile...nothing to do
-	if not closestHostile then return false end
-	
-	-- If this is on the do not engage list...run the F away!
-	-- TODO!
-	
-	local hostilePos = Vector3(closestHostile.Transform:GetWorldPosition())
-		
-	-- This should include the closest
-	local allHostiles = TheSim:FindEntities(hostilePos.x,hostilePos.y,hostilePos.z,5,{"hostile"})
-	
-	
-	-- Get my highest damage weapon I have or can make
-	local allWeaponsInInventory = inst.components.inventory:FindItems(function(item) return 
-										item.components.weapon and item.components.equippable and item.components.weapon.damage > 0 end)
-										
-	local highestDamageWeapon = nil										
-	-- The above does not count equipped weapons 
-	local equipped = inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-	
-	if equipped and equipped.components.weapon and equipped.components.weapon.damage > 0 then
-		highestDamageWeapon = equipped
-	end
-
-	for k,v in pairs(allWeaponsInInventory) do
-		if highestDamageWeapon == nil then
-			highestDamageWeapon = v
-		else
-			if v.components.weapon.damage > highestDamageWeapon.components.weapon.damage then
-				highestDamageWeapon = v
-			end
-		end
-	end
-	
-	-- TODO: Consider an axe or pickaxe a valid weapon if we are under attack already! 
-	--       The spear condition is only if we are going to actively hunt something.
-	
-	-- We don't have a weapon...can we make one? 
-	-- TODO: What do we try to make? Only seeing if we can make a spear here as I don't consider an axe or 
-	--       a pickaxe a valid weapon. Should probably excluce
-	if highestDamageWeapon == nil or (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) then
-		if not CanPlayerBuildThis(inst,"spear") and inst.components.combat.target == nil then
-			-- TODO: Rather than checking to see if we have a combat target, should make
-			--       sure the closest hostile is X away so we have time to craft one.
-			--       What I do not want is to just keep trying to make one while being attacked.
-			--       Returning false here means we'll run away.
-			print("I don't have a good weapon and cannot make one")
-			return false
-		elseif highestDamageWeapon ~= nil and inst.components.combat.target then
-			print("I'll use what I've got!")
-		end
-	end
-	
-	if highestDamageWeapon == nil then return false end
-	
-	-- TODO: Calculate our best armor.
-	
-	-- Collect some stats about this group of dingdongs
-	
-	local totalHealth=0
-	local totalWeaponSwings = 0
-
-	-- dpsTable is ordered like so:
-	--{ [min_attack_period] = sum_of_all_at_this_period,
-	--  [min_attack_period_2] = ...
-	--}
-	-- We can calculate how much damage we'll take by summing the entire table, then adding up to the min_attack_period
-	
-	-- If they are in cooldown, do not add to damage_on_first_attack. This number is the damage taken at zero time assuming
-	-- all mobs are going to hit at the exact same time.
-	
-	-- TODO: Get mob attack range and calculate how long until they are in range to attack for better estimate
-	
-	
-	local dpsTable = {}
-	local damage_on_first_attack = 0
-	for k,v in pairs(allHostiles) do
-		local a = v.components.combat.min_attack_period
-		dpsTable[a] = (dpsTable[a] and dpsTable[a] or 0) + v.components.combat.defaultdamage
-		
-		-- If a mob is ready to attack, add this to the damage taken when entering combat
-		-- (even though they probably wont attack right away)
-		if not v.components.combat:InCooldown() then
-			damage_on_first_attack = damage_on_first_attack + v.components.combat.defaultdamage
-		end
-
-		totalHealth = totalHealth + v.components.health.currenthealth -- TODO: Apply damage reduction if any
-		totalWeaponSwings = totalWeaponSwings + math.ceil(v.components.health.currenthealth / highestDamageWeapon.components.weapon.damage)
-	end
-	
-
-	
-	print("Total Health of all mobs around me: " .. tostring(totalHealth))
-	print("It will take " .. tostring(totalWeaponSwings) .. " swings of my weapon to kill them all")
-	print("It takes " .. tostring(inst.components.combat.min_attack_period) .. " seconds to swing")
-	
-	-- Now, determine if we are going to engage. If so, equip a weapon and charge!
-	
-	-- How long will it take me to swing x times?
-	-- If we aren't in cooldown, we can swing right away. Else, we need to add our current min_attack_period to the calc.
-	--      yes, we could find the exact amount of time left for cooldown, but this will be a safe estimate
-	local inCooldown = inst.components.combat:InCooldown() and 0 or 1
-	
-	local timeToKill = (totalWeaponSwings-inCooldown) * inst.components.combat.min_attack_period
-	
-	
-	table.sort(dpsTable)
-	
-	local damageTakenInT = damage_on_first_attack
-	for k,v in pairs(dpsTable) do
-		if k <= timeToKill then
-			damageTakenInT = damageTakenInT + v
-		end
-	end
-	
-	print("It will take " .. tostring(timeToKill) .. " seconds to kill the mob. We'll take about " .. tostring(damageTakenInT) .. " damage")
-	
-	local ch = inst.components.health.currenthealth
-	-- TODO: Make this a threshold
-	if (ch - damageTakenInT > 50) then
-	
-		-- Just compare prefabs...we might have duplicates. no point in swapping
-		if not equipped or (equipped and (equipped.prefab ~= highestDamageWeapon.prefab)) then
-			inst.components.inventory:Equip(highestDamageWeapon)
-		end
-		
-		-- TODO: Make armor first and equip it if possible!
-		
-		-- Set this guy as our target
-		inst.components.combat:SetTarget(closestHostile)
-		return true
-		
-	end
-	
-end
-
--- Under these conditions, fight back. Else, run away
-local function FightBack(inst)
-	if inst.components.combat.target ~= nil then
-		print("Fight Back called with target " .. tostring(inst.components.combat.target.prefab))
-		inst.components.combat.target:AddTag("TryingToKillUs")
-	else
-		inst:RemoveTag("FightBack")
-		return
-	end
-
-	-- This has priority. 
-	inst:RemoveTag("DoingAction")
-	inst:RemoveTag("DoingLongAction")
-	
-	if inst.sg:HasStateTag("busy") then
-		return
-	end
-	
-	-- If it's on the do_not_engage list, just run! Not sure how it got us, but it did.
-	if ShouldRunAway(inst) then return end
-	
-	-- If we're close to dead...run away
-	if inst.components.health:GetPercent() < .35 then return end
-	
-	-- All things seem to fight in groups. Count the number of like mobs near this mob. If more than 2, runaway!
-	local pos = Vector3(inst.Transform:GetWorldPosition())
-	local likeMobs = TheSim:FindEntities(pos.x,pos.y,pos.z, 6)
-	local numTargets = 0
-	for k,v in pairs(likeMobs) do 
-		if v.prefab == inst.components.combat.target.prefab then
-			numTargets = numTargets + 1
-			v:AddTag("TryingToKillUs")
-		end
-	end
-	
-	if numTargets > 3 then
-		print("Too many! Run away!")
-		return
-	end
-	
-	-- Do we want to fight this target? 
-	-- What conditions would we fight under? Armor? Weapons? Hounds? etc
-	
-	-- Right now, the answer will be "YES, IT MUST DIE"
-	
-	-- First, check the distance to the target. This could be an old target that we've run away from. If so,
-	-- clear the combat target fcn.
-
-	-- Do we have a weapon
-	local equipped = inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
-	local allWeaponsInInventory = inst.components.inventory:FindItems(function(item) return item.components.weapon and item.components.equippable end)
-	
-	-- Sort by highest damage and equip that one. Replace the one in hands if higher
-	local highestDamageWeapon = nil
-	
-	if equipped and equipped.components.weapon then
-		highestDamageWeapon = equipped
-	end
-	for k,v in pairs(allWeaponsInInventory) do
-		if highestDamageWeapon == nil then
-			highestDamageWeapon = v
-		else
-			if v.components.weapon.damage > highestDamageWeapon.components.weapon.damage then
-				highestDamageWeapon = v
-			end
-		end
-	end
-	
-	-- If we don't have at least a spears worth of damage, make a spear
-	if (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) or highestDamageWeapon == nil then
-		--print("Shit shit shit, no weapons")
-		
-		-- Can we make a spear? We'll equip it on the next visit to this function
-		if inst.components.builder and CanIBuildThis(inst, "spear") then
-			BuildThis(inst,"spear")
-		else
-			-- Can't build a spear. If we don't have ANYTHING, run away!
-			if highestDamageWeapon == nil then
-				-- Can't even build a spear! Abort abort!
-				--addRecipeToGatherList("spear",false)
-				inst:RemoveTag("FightBack")
-				inst.components.combat:GiveUp()
-				return
-			end
-			print("Can't build a spear. I'm using whatever I've got!")
-		end
-	end
-	
-	
-	-- Equip our best weapon (before armor incase its in our backpack)
-	if equipped ~= highestDamageWeapon and highestDamageWeapon ~= nil then
-		inst.components.inventory:Equip(highestDamageWeapon)
-	end
-	
-	-- We're gonna fight. Do we have armor that's not equiped?
-	if not inst.components.inventory:IsWearingArmor() then
-		-- Do we have any? Equip the one with the highest value
-		-- Else, try to make some (what order should I make it in?)
-		local allArmor = inst.components.inventory:FindItems(function(item) return item.components.armor end)
-		
-		-- Don't have any. Can we make some?
-		if #allArmor == 0 then
-			print("Don't own armor. Can I make some?")
-			-- TODO: Make this from a lookup table or something.
-			if CanIBuildThis(inst,"armorwood") then
-				BuildThis(inst,"armorwood")
-			elseif CanIBuildThis(inst,"armorgrass") then
-				BuildThis(inst,"armorgrass")
-			end
-		end
-		
-		-- Do another lookup
-		allArmor = inst.components.inventory:FindItems(function(item) return item.components.armor end)
-		local highestArmorValue = nil
-		for k,v in pairs(allArmor) do 
-			if highestArmorValue == nil and v.components.armor.absorb_percent then 
-				highestArmorValue = v
-			else
-				if v.components.armor.absorb_percent and 
-				v.components.armor.absorb_percent > highestArmorValue.components.armor.absorb_persent then
-					highestArmorValue = v
-				end
-			end
-		end
-		
-		if highestArmorValue then
-			-- TODO: Need to pick up backpack once we make one
-			inst.components.inventory:Equip(highestArmorValue)
-		end
-	end
-	
-	inst:AddTag("FightBack")
-end
------------------------------ End Combat ---------------------------------------
-
-local function MakeTorchAndKeepRunning(inst)
-	local haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if not haveTorch then
-		-- Need to make one!
-		if inst.components.builder:CanBuild("torch") then
-			--inst.components.builder:DoBuild("torch")
-			local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,nil,"torch",nil)
-			inst:PushBufferedAction(action)
-		end
-	end
-	-- Find it again
-	haveTorch = inst.components.inventory:FindItem(function(item) return item.prefab == "torch" end)
-	if haveTorch then
-		inst.components.inventory:Equip(haveTorch)
-	end
-	
-	-- OK, have a torch. Run home!
-	if  haveTorch and HasValidHome(inst) and
-        not inst.components.combat.target then
-			inst.components.homeseeker:GoHome(true)
-    end
-	
-end
-
 local function IsNearCookingSource(inst)
 	local cooker = GetClosestInstWithTag("campfire",inst,10)
 	if cooker then return true end
 end
 
+-- TODO: Move this to behaviour node
 local function CookSomeFood(inst)
 	local cooker = GetClosestInstWithTag("campfire",inst,10)
 	if cooker then
@@ -1037,11 +587,29 @@ local function OnHitFcn(inst,data)
 	inst.components.combat:SetTarget(data.attacker)
 end
 
+-- Used by doscience node. It expects a table returned with
+function ArtificalBrain:GetSomethingToBuild()
+	if self.newPendingBuild then
+		self.newPendingBuild = false
+		return self.pendingBuildTable
+	end
+end
+
+function ArtificalBrain:SetSomethingToBuild(prefab, pos, onsuccess, onfail)
+	if self.pendingBuildTable == nil then
+		self.pendingBuildTable = {}
+	end
+	
+	self.pendingBuildTable.prefab = prefab
+	self.pendingBuildTable.pos = pos
+	self.pendingBuildTable.onsuccess = onsuccess
+	self.pendingBuildTable.onfail = onfail
+	self.newPendingBuild = true
+end
 
 function ArtificalBrain:OnStop()
 	print("Stopping the brain!")
 	self.inst:RemoveEventCallback("actionDone",ActionDone)
-	self.inst:RemoveEventCallback("finishedwork", OnFinishedWork)
 	self.inst:RemoveEventCallback("buildstructure", ListenForBuild)
 	self.inst:RemoveEventCallback("builditem",ListenForBuild)
 	self.inst:RemoveEventCallback("attacked", OnHitFcn)
@@ -1053,7 +621,6 @@ function ArtificalBrain:OnStart()
 	local clock = GetClock()
 	
 	self.inst:ListenForEvent("actionDone",ActionDone)
-	self.inst:ListenForEvent("finishedwork", OnFinishedWork)
 	self.inst:ListenForEvent("buildstructure", ListenForBuild)
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
@@ -1121,11 +688,7 @@ function ArtificalBrain:OnStart()
 	-- Do this stuff the first half of duck (or all of dusk if we don't have a home yet)
 	local dusk = WhileNode( function() return clock and clock:IsDusk() and (not MidwayThroughDusk() or not HasValidHome(self.inst)) end, "IsDusk",
         PriorityNode{
-	
-			-- If we started doing a long action, keep doing that action
-			WhileNode(function() return self.inst.sg:HasStateTag("working") and (self.inst:HasTag("DoingLongAction") and currentTreeOrRock ~= nil) end, "continueLongAction",
-					DoAction(self.inst, function() return FindTreeOrRockAction(self,nil,true) end, "continueAction", true)	),
-			
+				
 			-- Make sure we eat. During the day, only make sure to stay above 50% hunger.
 			ManageHunger(self.inst,.5),
 			
@@ -1186,9 +749,7 @@ function ArtificalBrain:OnStart()
 		
 	local night = WhileNode( function() return clock and clock:IsNight() end, "IsNight",
         PriorityNode{
-			-- If we aren't home but we have a home, make a torch and keep running!
-			--WhileNode(function() return HasValidHome(self.inst) and not AtHome(self.inst) end, "runHomeJack",
-			--	DoAction(self.inst, function() return MakeTorchAndKeepRunning(self.inst) end, "make torch", true)),
+			-- TODO: If we aren't home but we have a home, make a torch and keep running!
 				
 			-- Make sure there's light!
 			MaintainLightSource(self.inst, 30),
@@ -1217,8 +778,7 @@ function ArtificalBrain:OnStart()
 	local root = 
         PriorityNode(
         {   
-			-- No matter the time, panic when on fire
-			--WhileNode(function() local ret = self.inst:HasTag("Stuck") self.inst:RemoveTag("Stuck") return ret end, "Stuck", Panic(self.inst)),
+			-- If any brain function decides necessar, it can add an IsStuck tag to wilson. This will cause the brain to reset. 
 			IfNode( function() return self.inst:HasTag("IsStuck") end, "stuck",
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
 				
@@ -1242,7 +802,7 @@ function ArtificalBrain:OnStart()
 			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),
 				
 			-- Always run away from these things
-			RunAway(self.inst, ShouldRunAway, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
+			RunAway(self.inst, function(guy) return self:ShouldRunAway(guy) end, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
 
 			-- Try to stay healthy
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal", 
@@ -1259,7 +819,8 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
 			
 			-- If near a science machine, wilson will prototype stuff!
-			DoScience(self.inst),
+			-- Otherwise, if anything is set in the buildtable, this node will build it.
+			DoScience(self.inst, function() return self:GetSomethingToBuild() end),
 				
 			-- Always fight back or run. Don't just stand there like a tool
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",

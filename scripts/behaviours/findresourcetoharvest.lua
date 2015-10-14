@@ -13,7 +13,6 @@ FindResourceToHarvest = Class(BehaviourNode, function(self, inst, searchDistance
 	self.onReachDest = function(inst,data)
 		local target = data.target
 		if target and self.action and target == self.action.target then
-			print("We have arrived.")
 			self.reachedDestination = true
 		end
 	end

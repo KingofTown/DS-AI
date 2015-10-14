@@ -182,9 +182,10 @@ function FindTreeOrRock:Visit()
 		
 		local tool = self.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
 		if not tool or not tool.components.tool:CanDoAction(self.currentTarget.components.workable.action) then
-			print("We can't continue this action!")
+			--print("We can't continue this action!")
+			-- We probably killed it. Return success.
 			self.currentTarget = nil
-			self.status = FAILED
+			self.status = SUCCESS
 			return
 		else 
 			-- Still good. Keep going

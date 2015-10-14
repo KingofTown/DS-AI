@@ -6,10 +6,9 @@ local BASE_BUILDING_PRIORITY = {
 local BASE_BUILDINGS = {}
 
 
-ManageBase = Class(BehaviourNode, function(self, inst, atHome)
+ManageBase = Class(BehaviourNode, function(self, inst)
     BehaviourNode._ctor(self, "ManageBase")
     self.inst = inst
-    self.atHome = atHome
 end)
 
 function ManageBase:OnFail()
@@ -33,23 +32,35 @@ function ManageBase:IsObsticle(thing)
 		return false
 	end
 end
-	
+
+function ManageBase:RemoveObsticle(thing)
+	print("REMOVING " .. thing .. "!")
+end	
 
 function ManageBase:Visit()
-
-    if not self.atHome then
-		print("I can't manage my base if I'm not there!!!")
-		self.status = FAILED
-		return
-	elseif self.status == READY and self.atHome then
-		local obsticle = FindEntity(self.inst,200,function(thing) return self.IsObsticle(thing) end)
+    --if false then
+	--	print("I can't manage my base if I'm not there!!!")
+	--	self.status = FAILED
+	--	return
+	local obsticle = nil
+	local homePos = self.inst.brain:GetHomePos()
+	if homePos ~= nil then
+		obsticle = FindEntity(homePos,20,function(thing) return self:IsObsticle(thing) end)
+	end
 	
-    	-- Build up our base
-		--for k,v in pairs(BASE_BUILDING_PRIORITY) do
-		--	if BASE_BUILDINGS[k] == nil then
-		--		buildIt(k)
-		--	end
-		--end
+	if self.status == READY and next(obsticle) ~= nil then
+		self:RemoveObsticle(next(obsticle))
+	elseif self.status == READY then
+		-- Build up our base
+		for k,v in pairs(BASE_BUILDING_PRIORITY) do
+			print(v)
+			print(BASE_BUILDINGS[v])
+			if BASE_BUILDINGS[v] == nil then			
+				print("Can I build ")
+				print(BASE_BUILDINGS[k])
+				print(CanPlayerBuildThis(self.inst, BASE_BUILDINGS[k]))
+			end
+		end
 	end
 end
 

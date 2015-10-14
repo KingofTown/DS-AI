@@ -650,6 +650,8 @@ function ArtificalBrain:OnStart()
 			
 			-- Eat something if hunger gets below .5
 			ManageHunger(self.inst, .5),
+			
+			ManageBase(self.inst),
 				
 			-- If there's a touchstone nearby, activate it
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
@@ -692,6 +694,8 @@ function ArtificalBrain:OnStart()
 			-- Make sure we eat. During the day, only make sure to stay above 50% hunger.
 			ManageHunger(self.inst,.5),
 			
+			ManageBase(self.inst),
+			
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
@@ -728,6 +732,8 @@ function ArtificalBrain:OnStart()
 			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .5 end, "notBusy_hungry",
 			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
 			ManageHunger(self.inst,.5),
+			
+			ManageBase(self.inst),
 
 			IfNode( function() return HasValidHome(self.inst) end, "try to go home",
 				DoAction(self.inst, function() return GoHomeAction(self.inst) end, "go home", true)),
@@ -743,7 +749,7 @@ function ArtificalBrain:OnStart()
 				-- If we're home (or at our temp camp) start cooking some food.
 				
 				
-			ManageBase(self.inst, AtHome(self.inst))
+			--ManageBase(self.inst),
 				
 		},.25)
 		
@@ -753,6 +759,8 @@ function ArtificalBrain:OnStart()
 				
 			-- Make sure there's light!
 			MaintainLightSource(self.inst, 30),
+			
+			ManageBase(self.inst),
 				
 			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
 				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
@@ -762,7 +770,7 @@ function ArtificalBrain:OnStart()
 			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
 			ManageHunger(self.inst,.9),
 			
-			ManageBase(self.inst, AtHome(self.inst))
+			--ManageBase(self.inst),
             
         },.5)
 		

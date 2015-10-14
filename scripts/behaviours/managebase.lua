@@ -20,39 +20,20 @@ function ManageBase:OnSucceed()
     self.pendingstatus = SUCCESS
 end
 
--- Returns a point somewhere near thing at a distance dist
-function GetPointNearThing(thing, dist)
-	local pos = Vector3(thing.Transform:GetWorldPosition())
-
-	if pos then
-		local theta = math.random() * 2 * PI
-		local radius = dist
-		local offset = FindWalkableOffset(pos, theta, radius, 12, true)
-		if offset then
-			return pos+offset
-		end
-	end
-end
-
-function ManageBase:buildIt(buildableThing)
-	if self.inst.components.builder:CanBuild(buildableThing) then
-		-- Find some valid ground near us
-		local buildableThingPos = GetPointNearThing(self.inst,3)
-		if buildableThingPos ~= nil then
-			print("Found a valid place to build a %s", buildableThing)
-			--return SetupBufferedAction(self.inst, BufferedAction(self.inst,self.inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil))
-			local action = BufferedAction(self.inst,self.inst,ACTIONS.BUILD,nil,buildableThingPos,buildableThing,nil)
-			self.inst:PushBufferedAction(action)
-			self.status = SUCCESS
-		else
-			print("Could not find a place for a %s", buildableThing)
-			self.status = FAILED
-		end
+function ManageBase:IsObsticle(thing)
+	print("Is this an obsticle???")
+	print(thing)
+	if thing == nil then
+		return false
+	elseif not thing.prefab then
+		return false
+	elseif thing.prefab == "Evergreen" then
+		return true
 	else
-		print("I don't have the resources to build %s", buildableThing)
-		self.status = FAILED
+		return false
 	end
 end
+	
 
 function ManageBase:Visit()
 
@@ -61,12 +42,14 @@ function ManageBase:Visit()
 		self.status = FAILED
 		return
 	elseif self.status == READY and self.atHome then
+		local obsticle = FindEntity(self.inst,200,function(thing) return self.IsObsticle(thing) end)
+	
     	-- Build up our base
-		for k,v in pairs(BASE_BUILDING_PRIORITY) do
-			if BASE_BUILDINGS[k] == nil then
-				buildIt(k)
-			end
-		end
+		--for k,v in pairs(BASE_BUILDING_PRIORITY) do
+		--	if BASE_BUILDINGS[k] == nil then
+		--		buildIt(k)
+		--	end
+		--end
 	end
 end
 

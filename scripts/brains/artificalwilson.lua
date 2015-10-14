@@ -8,6 +8,7 @@ require "behaviours/panic"
 
 require "behaviours/managehunger"
 require "behaviours/managehealth"
+require "behaviours/managebase"
 require "behaviours/findandactivate"
 require "behaviours/findresourceonground"
 require "behaviours/findresourcetoharvest"
@@ -1179,6 +1180,8 @@ function ArtificalBrain:OnStart()
 				-- If we're home (or at our temp camp) start cooking some food.
 				
 				
+			ManageBase(self.inst, AtHome(self.inst))
+				
 		},.25)
 		
 	local night = WhileNode( function() return clock and clock:IsNight() end, "IsNight",
@@ -1197,6 +1200,8 @@ function ArtificalBrain:OnStart()
 			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .9 end, "notBusy_hungry",
 			--	DoAction(self.inst, function() return HaveASnack(self.inst) end, "eating", true )),
 			ManageHunger(self.inst,.9),
+			
+			ManageBase(self.inst, AtHome(self.inst))
             
         },.5)
 		

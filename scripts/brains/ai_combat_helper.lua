@@ -146,7 +146,25 @@ function GoForTheEyes(inst)
 		-- Set this guy as our target
 		inst.components.combat:SetTarget(closestHostile)
 		return true
-		
+	end
+end
+
+--------------------------------------------------
+
+function ShouldRunAway(guy)
+
+	-- Wilson apparently gets scared by his own shadow
+	-- Also, don't get scared of chester too...
+	if guy:HasTag("player") or guy:HasTag("companion") then 
+		return false 
 	end
 	
+	-- Angry worker bees don't have any special tag...so check to see if it's spring
+	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
+	if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
+		return true
+	end
+	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
+		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito") or guy:HasTag("merm")
+
 end

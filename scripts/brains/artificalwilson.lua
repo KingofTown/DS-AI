@@ -556,6 +556,7 @@ local function OnHitFcn(inst,data)
 end
 
 -- Used by doscience node. It expects a table returned with
+-- These really should be part of the builder component...but I'm too lazy to add them there. 
 function ArtificalBrain:GetSomethingToBuild()
 	if self.newPendingBuild then
 		self.newPendingBuild = false

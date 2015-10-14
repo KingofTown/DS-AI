@@ -121,9 +121,9 @@ function GoForTheEyes(inst)
 	
 
 	
-	print("Total Health of all mobs around me: " .. tostring(totalHealth))
-	print("It will take " .. tostring(totalWeaponSwings) .. " swings of my weapon to kill them all")
-	print("It takes " .. tostring(inst.components.combat.min_attack_period) .. " seconds to swing")
+	--print("Total Health of all mobs around me: " .. tostring(totalHealth))
+	--print("It will take " .. tostring(totalWeaponSwings) .. " swings of my weapon to kill them all")
+	--print("It takes " .. tostring(inst.components.combat.min_attack_period) .. " seconds to swing")
 	
 	-- Now, determine if we are going to engage. If so, equip a weapon and charge!
 	
@@ -144,7 +144,7 @@ function GoForTheEyes(inst)
 		end
 	end
 	
-	print("It will take " .. tostring(timeToKill) .. " seconds to kill the mob. We'll take about " .. tostring(damageTakenInT) .. " damage")
+	--print("It will take " .. tostring(timeToKill) .. " seconds to kill the mob. We'll take about " .. tostring(damageTakenInT) .. " damage")
 	
 	local ch = inst.components.health.currenthealth
 	-- TODO: Make this a threshold

@@ -69,7 +69,6 @@ GLOBAL.TheInput:AddKeyDownHandler(GLOBAL.KEY_P, function()
 	elseif not GLOBAL.IsPaused() and TheInput:IsKeyDown(GLOBAL.KEY_CTRL) and TheInput:IsKeyDown(GLOBAL.KEY_ALT) then
 		setSelfNormal()
 	end
-	
 end)
 
 
@@ -80,7 +79,7 @@ local function MakeClickableBrain()
 	local status = controls.status
 	
 	status.brain:SetClickable(true)
-	
+
 	local x = 0
 	local darker = true
 	local function BrainPulse(self)

@@ -12,6 +12,8 @@ require "brains/ai_build_helper"
 --]]
 function GoForTheEyes(inst)
 
+  -- If this is true, we're waiting for the spear to be built
+  if inst.waitingForSpear then return false end
 
 	local closestHostile = GetClosestInstWithTag("hostile", inst, 20)
 	
@@ -56,7 +58,19 @@ function GoForTheEyes(inst)
 	-- TODO: What do we try to make? Only seeing if we can make a spear here as I don't consider an axe or 
 	--       a pickaxe a valid weapon. Should probably excluce
 	if highestDamageWeapon == nil or (highestDamageWeapon and highestDamageWeapon.components.weapon.damage < 34) then
-		if not CanPlayerBuildThis(inst,"spear") and inst.components.combat.target == nil then
+	  local canBuildSpear = CanPlayerBuildThis(inst,"spear")
+    
+	  if canBuildSpear then
+	   -- TODO: Need to check if it's safe to build this. If it's not safe...then don't start!
+	   --       Maybe use what I've got...or run away to build one? No idea.
+	   inst.waitingForSpear = true
+	   inst.brain:SetSomethingToBuild("spear",nil,
+	     function() inst.waitingForSpear = nil end,function() inst.waitingForSpear = nil end)
+	     
+	   -- Gotta wait for that spear to be built
+	   print("Making a spear!")
+	   return false
+		elseif not canBuildSpear and inst.components.combat.target == nil then
 			-- TODO: Rather than checking to see if we have a combat target, should make
 			--       sure the closest hostile is X away so we have time to craft one.
 			--       What I do not want is to just keep trying to make one while being attacked.
@@ -107,9 +121,9 @@ function GoForTheEyes(inst)
 	
 
 	
-	print("Total Health of all mobs around me: " .. tostring(totalHealth))
-	print("It will take " .. tostring(totalWeaponSwings) .. " swings of my weapon to kill them all")
-	print("It takes " .. tostring(inst.components.combat.min_attack_period) .. " seconds to swing")
+	--print("Total Health of all mobs around me: " .. tostring(totalHealth))
+	--print("It will take " .. tostring(totalWeaponSwings) .. " swings of my weapon to kill them all")
+	--print("It takes " .. tostring(inst.components.combat.min_attack_period) .. " seconds to swing")
 	
 	-- Now, determine if we are going to engage. If so, equip a weapon and charge!
 	
@@ -130,7 +144,7 @@ function GoForTheEyes(inst)
 		end
 	end
 	
-	print("It will take " .. tostring(timeToKill) .. " seconds to kill the mob. We'll take about " .. tostring(damageTakenInT) .. " damage")
+	--print("It will take " .. tostring(timeToKill) .. " seconds to kill the mob. We'll take about " .. tostring(damageTakenInT) .. " damage")
 	
 	local ch = inst.components.health.currenthealth
 	-- TODO: Make this a threshold

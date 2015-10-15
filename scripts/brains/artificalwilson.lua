@@ -15,6 +15,7 @@ require "behaviours/findresourcetoharvest"
 require "behaviours/findtreeorrock"
 require "behaviours/findormakelight"
 require "behaviours/doscience"
+require "behaviours/cookfood"
 
 require "brains/ai_build_helper"
 require "brains/ai_combat_helper"
@@ -80,19 +81,6 @@ local function addRecipeToGatherList(thingToBuild, addFullRecipe)
 end
 ---------------------------------------------------------------------------------
 
-
---------------------------------------------------------------------------------
-
--- Copied straight from widgetutil.lua
-local function CanPrototypeRecipe(recipetree, buildertree)
-    for k,v in pairs(recipetree) do
-        if buildertree[tostring(k)] and recipetree[tostring(k)] and
-        recipetree[tostring(k)] > buildertree[tostring(k)] then
-                return false
-        end
-    end
-    return true
-end
 
 -- Makes sure we have the right tech level.
 -- If we don't have a resource, checks to see if we can craft it/them
@@ -524,36 +512,6 @@ local function FindSomewhereNewToGo(inst)
 	end
 end
 
-local function IsNearCookingSource(inst)
-	local cooker = GetClosestInstWithTag("campfire",inst,10)
-	if cooker then return true end
-end
-
--- TODO: Move this to behaviour node
-local function CookSomeFood(inst)
-	local cooker = GetClosestInstWithTag("campfire",inst,10)
-	if cooker then
-		-- Find food in inventory that we can cook.
-		local cookableFood = inst.components.inventory:FindItems(function(item) return item.components.cookable end)
-		
-		for k,v in pairs(cookableFood) do
-			-- Don't cook this unless we have a free space in inventory or this is a single item or the product is in our inventory
-			local has, numfound = inst.components.inventory:Has(v.prefab,1)
-			local theProduct = inst.components.inventory:FindItem(function(item) return (item.prefab == v.components.cookable.product) end)
-			local canFillStack = false
-			if theProduct then
-				canFillStack = not inst.components.inventory:Has(v.components.cookable.product,theProduct.components.stackable.maxsize)
-			end
-
-			if not inst.components.inventory:IsFull() or numfound == 1 or (theProduct and canFillStack) then
-				return SetupBufferedAction(inst,BufferedAction(inst,cooker,ACTIONS.COOK,v))
-			end
-		end
-	end
-end
-
---------------------------------------------------------------------------------
-
 local function MidwayThroughDusk()
 	local clock = GetClock()
 	local startTime = clock:GetDuskTime()
@@ -570,6 +528,7 @@ local function OnHitFcn(inst,data)
 end
 
 -- Used by doscience node. It expects a table returned with
+-- These really should be part of the builder component...but I'm too lazy to add them there. 
 function ArtificalBrain:GetSomethingToBuild()
 	if self.newPendingBuild then
 		self.newPendingBuild = false
@@ -744,11 +703,13 @@ function ArtificalBrain:OnStart()
 				
 			-- Make sure there's light!
 			MaintainLightSource(self.inst, 30),
+
+			CookFood(self.inst,10),
 			
 			ManageBase(self.inst),
-				
-			IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
-				DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
+
+			--IfNode( function() return IsNearCookingSource(self.inst) end, "let's cook",
+			--	DoAction(self.inst, function() return CookSomeFood(self.inst) end, "cooking food", true)),
 			
 			-- Eat more at night
 			--IfNode( function() return not IsBusy(self.inst) and  self.inst.components.hunger:GetPercent() < .9 end, "notBusy_hungry",

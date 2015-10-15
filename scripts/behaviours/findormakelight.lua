@@ -2,9 +2,13 @@ MaintainLightSource = Class(BehaviourNode, function(self, inst, searchDistance)
     BehaviourNode._ctor(self, "MaintainLightSource")
     self.inst = inst
 	self.distance = searchDistance
+	
+	-- This is the distance wilson will run towards the light. This is not the distance
+	-- he will stay to the light.
+	self.safe_distance = 2
 end)
 
-local SAFE_LIGHT_DISTANCE = 3
+
 
 function MaintainLightSource:OnActionFail()
 	self.pendingstatus = FAILED
@@ -64,11 +68,23 @@ function MaintainLightSource:Visit()
 		
 		if source then
 			-- Get the safety distance according to the lightsource
-			-- strength
+			-- Only run towards it if the current light value where I'm standing is 0
+			if self.inst.LightWatcher:GetLightValue() < TUNING.SANITY_LOW_LIGHT then
+    		    print("It's too dark!")
+                self.currentLightSource = source
+                self.runningTowardsLight = true
+                self.inst.components.locomotor:RunInDirection(
+                    self.inst:GetAngleToPoint(Point(source.Transform:GetWorldPosition())))
+                -- Run towards the light!
+                self.status = RUNNING
+                return			     
+			end
 			
+			--[[
 			self.safe_distance = SAFE_LIGHT_DISTANCE
 			if source.components.firefx then
 				self.safe_distance = source.components.firefx.current_radius
+				print("Fire current radius: " .. tostring(self.safe_distance))
 			end
 		
 			-- Make sure we stay close enough to it
@@ -83,6 +99,7 @@ function MaintainLightSource:Visit()
 				self.status = RUNNING
 				return
 			end
+			]]--
 			
 			-- If it's a firepit or campfire, make sure there's enough fuel 
 			-- in it. 
@@ -123,14 +140,14 @@ function MaintainLightSource:Visit()
 				return
 			end
 			
-			local dsq = self.inst:GetDistanceSqToInst(self.currentLightSource)
-			if dsq <= self.safe_distance*self.safe_distance then
-				self.inst.components.locomotor:Stop()
-				self.runningTowardsLight = false
-				-- Return failed here. This isn't important
-				self.status = SUCCESS
-				return
-			else
+			-- Keep running until we are in the TUNING.SANITY_HIGH_LIGHT field
+			if self.inst.LightWatcher:GetLightValue() >= math.max(TUNING.SANITY_LOW_LIGHT,TUNING.SANITY_HIGH_LIGHT/3) then
+			    self.inst.components.locomotor:Stop()
+                self.runningTowardsLight = false
+                -- Return failed here. This isn't important
+                self.status = SUCCESS
+                return
+            else
 				-- Keep running towards the light. 
 				-- Set the locomotor to run again incase something interrupted it. This
 				-- is important, dammit! 
@@ -266,10 +283,15 @@ function MaintainLightSource:Visit()
 			if self.inst.components.builder:CanBuild("campfire") then
 				-- Don't build one too close to burnable things. 
 				-- TODO: This should be a while loop until we find a valid spot
-				local burnable = GetClosestInstWithTag("burnable",self.inst,3)
+				--local burnable = GetClosestInstWithTag("burnable",self.inst,3)
+				-- GetClosestInstWithTag returns crap in our inventory. That's useless.
+				local burnable = FindEntity(self.inst,3,function(thing) return thing ~= self.inst 
+				                                            and not self.inst.components.inventory:FindItem(
+				                                                function(invItem) return thing == invItem end)
+				                                         end, {"burnable"})
 				local pos = nil
 				if burnable then
-					print("Don't want to build campfire too close")
+					print("Don't want to build campfire too close to " .. burnable.prefab)
 					pos = self.inst.brain:GetPointNearThing(burnable,4)
 				end
 

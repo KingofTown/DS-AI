@@ -602,6 +602,7 @@ end
 function ArtificalBrain:OnStart()
 	local clock = GetClock()
 	
+	self.inst:AddComponent("basebuilder")
 	self.inst:AddComponent("cartographer")
 	
 	self.inst:ListenForEvent("actionDone",ActionDone)

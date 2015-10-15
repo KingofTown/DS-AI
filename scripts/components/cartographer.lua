@@ -8,7 +8,7 @@ function Cartographer:OnSave()
 	-- Build the save data map
 	local data = {}
 	-- Add the stuff to save
-	data.utilityMap = utilityMap
+	--self.utilityMap = utilityMap
 	-- Return the map
 	return data
 end

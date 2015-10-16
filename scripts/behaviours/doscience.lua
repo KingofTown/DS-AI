@@ -127,7 +127,7 @@ function DoScience:Visit()
 			return
 		end
 		
-		print("Standing next to " .. prototyper.prefab .. " ...what can I build...")
+		--print("Standing next to " .. prototyper.prefab .. " ...what can I build...")
 		
 		local tech_level = self.inst.components.builder.accessible_tech_trees
 		for k,v in pairs(BUILD_PRIORITY) do
@@ -156,7 +156,7 @@ function DoScience:Visit()
 			-- Don't know how to build this. Check the next thing
 		end
 		-- Either list is empty or we can't building anything. Nothing to do
-		print("There's nothing we know how to build")
+		--print("There's nothing we know how to build")
 		self.status = FAILED
 		return		
 		

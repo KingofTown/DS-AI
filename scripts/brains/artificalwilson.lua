@@ -270,15 +270,61 @@ end)
 -- Helper functions to be used by behaviour nodes
 
 local IGNORE_LIST = {}
+local TRY_AGAIN_DIST = 15
 function ArtificalBrain:OnIgnoreList(prefab)
 	if not prefab then return false end
-	return IGNORE_LIST[prefab] ~= nil
+	if IGNORE_LIST[prefab] == nil then return false end
+	
+	if IGNORE_LIST[prefab].always then return true end
+		
+	-- Loop through the positions and compare with current pos
+	for k,v in pairs(IGNORE_LIST[prefab].posTable) do
+	   local dsq = self.inst:GetDistanceSqToPoint(v)
+	   if dsq then
+    	   if dsq <= TRY_AGAIN_DIST*TRY_AGAIN_DIST then
+    	       --print("Too close to a point we tried before")
+    	       return true   	       
+    	   end
+       end
+	end
+	
+	print("We can try " .. tostring(prefab) .. " again...")
+	return false
+	
+	-- Some things are only ignored depending on your position
+	
 end
 
-function ArtificalBrain:AddToIgnoreList(prefab)
+-- Need to supply more info to this so it can cleanup things.
+-- For example...if wilson is stuck and keeps ignoring things
+-- in an area, it would be nice to specify the place to ignore
+-- from. 
+-- Then when looking up if to ignore something, only ignore it if 
+-- standing in the same general area as before.
+-- Currently, he will just never look at those things again.
+-- Could even do a dumb timeout for these...but then he might
+-- just go back to that point at sometime in the future and
+-- befored to relearn to ingnore them.
+function ArtificalBrain:AddToIgnoreList(prefab, fromPos)
 	if not prefab then return end
 	print("Adding " .. tostring(prefab) .. " to the ignore list")
-	IGNORE_LIST[prefab] = 1
+	--IGNORE_LIST[prefab] = fromPos or 1
+	
+	if IGNORE_LIST[prefab] == nil then
+	   IGNORE_LIST[prefab] = {}
+	   IGNORE_LIST[prefab].posTable = {}
+	   IGNORE_LIST[prefab].always = false
+	end
+	
+	-- If this is defined, it means we want to ignore ALL types
+	-- of this prefab.
+	if not fromPos then 
+	   IGNORE_LIST[prefab].always = true
+	else
+	   -- We only want to ignore this specific GUID from this
+	   -- specific region
+	   table.insert(IGNORE_LIST[prefab].posTable, fromPos)
+	end
 end
 
 function ArtificalBrain:RemoveFromIgnoreList(prefab)
@@ -286,6 +332,11 @@ function ArtificalBrain:RemoveFromIgnoreList(prefab)
 	if self:OnIgnoreList(prefab) then
 		IGNORE_LIST[prefab] = nil
 	end
+end
+
+-- For debugging 
+function ArtificalBrain:GetIgnoreList()
+    return IGNORE_LIST
 end
 
 -- Helpful function...just returns a point at a random angle 
@@ -322,6 +373,48 @@ end
 
 function ArtificalBrain:ResetSearchDistance()
 	CurrentSearchDistance = MIN_SEARCH_DISTANCE
+end
+
+local function OnPathFinder(self,data)
+    print("Pathfinder has failed!")
+    if data then
+        if data.inst then
+            print(data.inst.prefab .. " has failed a pathfinding search")
+        end
+        if data.target then
+            print("Adding " .. data.target.prefab .. " GUID to ignore list")
+            self.brain:AddToIgnoreList(data.target.entity:GetGUID(), Vector3(self.Transform:GetWorldPosition()))
+        end
+    end
+    
+    if self.components.locomotor.isrunning then
+        local rand = math.random()
+        if rand > .66 then 
+            self.components.talker:Say("I'm too dumb to walk around this...")
+        elseif rand > .33 then
+            self.components.talker:Say("Stupid water...")
+        end
+        
+        -- NONE OF THIS WORKS! WHY WONT HE STOP MOVING!!!
+        
+        if self.components.locomotor.bufferedaction then
+            print("Calling FAIL")
+            self.components.locomotor.bufferedaction:Fail()
+        end
+        
+        self.components.locomotor:SetBufferedAction(nil)
+        self:StopUpdatingComponent(self.components.locomotor)
+        self.components.locomotor.wantstomoveforward = false
+        self.components.locomotor:StopMoving()
+
+        --self.components.locomotor:Stop()
+        --self.components.locomotor.dest = nil
+        --self.components.locomotor:StopMoving()
+    end
+
+    -- This will kickstart the brain.
+    self:AddTag("IsStuck")
+
 end
 
 
@@ -370,6 +463,9 @@ local function FixStuckWilson(inst)
 	-- Just reset the whole behaviour tree...that will get us unstuck
 	inst.brain.bt:Reset()
 	inst:RemoveTag("IsStuck")
+	if inst.components.locomotor.isrunning then
+        inst.components.locomotor:StopMoving()
+    end
 end
 
 -- Adds our custom success and fail callback to a buffered action
@@ -554,6 +650,7 @@ function ArtificalBrain:OnStop()
 	self.inst:RemoveEventCallback("buildstructure", ListenForBuild)
 	self.inst:RemoveEventCallback("builditem",ListenForBuild)
 	self.inst:RemoveEventCallback("attacked", OnHitFcn)
+	self.inst:RemoveEventCallback("noPathFound", OnPathFinder)
 	self.inst:RemoveTag("DoingLongAction")
 	self.inst:RemoveTag("DoingAction")
 end
@@ -568,6 +665,7 @@ function ArtificalBrain:OnStart()
 	self.inst:ListenForEvent("buildstructure", ListenForBuild)
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
+	self.inst:ListenForEvent("noPathFound", OnPathFinder)
 	
 	-- TODO: Make this a brain function so we can manage it dynamically
 	self:AddToIgnoreList("seeds")

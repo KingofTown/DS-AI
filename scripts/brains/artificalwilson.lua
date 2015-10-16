@@ -673,6 +673,7 @@ function ArtificalBrain:OnStart()
 	self:AddToIgnoreList("tallbirdegg")
 	self:AddToIgnoreList("pinecone")
 	self:AddToIgnoreList("red_cap")
+	self:AddToIgnoreList("nitre") -- Make sure to have a brain fcn add this when ready to collect it
 	self:AddToIgnoreList("ash")
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
@@ -703,13 +704,13 @@ function ArtificalBrain:OnStart()
 			SelectorNode{
 
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
+					FindResourceOnGround(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-					FindResourceToHarvest(self.inst, self.GetCurrentSearchDistance)),
+					FindResourceToHarvest(self.inst,  function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
+					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.CHOP)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.MINE)),
+					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.MINE)),
 				
 					-- Finally, if none of those succeed, increase the search distance for
 					-- the next loop.
@@ -739,16 +740,16 @@ function ArtificalBrain:OnStart()
 			SelectorNode{
 
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
-					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
+					FindResourceOnGround(self.inst,  function() return self:GetCurrentSearchDistance() end)),
 					
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
-					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
+					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.CHOP)),
 					
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
-					FindResourceToHarvest(self.inst, self.GetCurrentSearchDistance)),
+					FindResourceToHarvest(self.inst,  function() return self:GetCurrentSearchDistance() end)),
 
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
-					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.MINE)),
+					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.MINE)),
 				
 				IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
 					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),

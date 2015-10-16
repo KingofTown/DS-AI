@@ -62,7 +62,7 @@ function FindResourceOnGround:Visit()
 							-- Ignore things we have a full stack of (or one of if it doesn't stack)
 							not self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 1) and
 							-- Ignore this unless it fits in a stack
-							not (self.inst.components.inventory:IsFull() and haveItem == nil) and
+							not (self.inst.components.inventory:IsTotallyFull() and haveItem == nil) and
 							not self.inst.brain:OnIgnoreList(item.prefab) and
 							not self.inst.brain:OnIgnoreList(item.entity:GetGUID()) and
 							not item:HasTag("prey") and

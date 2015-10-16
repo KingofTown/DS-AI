@@ -339,3 +339,23 @@ end
 
 
 AddComponentPostInit("locomotor",RoGOnUpdate)
+
+
+local function ReallyFull(self)
+
+    self.IsTotallyFull = function()
+        local invFull = self:IsFull()
+        local overFull = true
+        if self.overflow then
+            if self.overflow.components.container then
+                --print("Is my " .. self.overflow.prefab .. " full?")
+                overFull = self.overflow.components.container:IsFull()
+            end
+        end
+        
+        return invFull and overFull
+    end
+
+end
+
+AddComponentPostInit("inventory", ReallyFull)

@@ -68,7 +68,7 @@ function FindResourceToHarvest:Visit()
 							return not self.inst.components.inventory:Has(theProductPrefab,theProduct.components.stackable and theProduct.components.stackable.maxsize or 2)
 						else
 							-- Don't have any of this...lets get some (only if we have room)						
-							return not self.inst.components.inventory:IsFull()
+							return not self.inst.components.inventory:IsTotallyFull()
 						end
 					end
 					-- Default case...probably not harvest-able. Return false.

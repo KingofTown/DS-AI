@@ -23,6 +23,40 @@ function FindTreeOrRock:BuildFailed()
 	self.pendingBuildStatus = FAILED
 end
 
+local function getLootFromTable(inst)
+    if not inst.components.lootdropper then return end
+    
+    local loot = {}
+    -- Only add the prefab once. Don't care about counting.
+    local function insertLoot(prefab)
+        if loot[prefab] == nil then
+            loot[prefab] = 1
+        end
+    end
+    
+
+    -- Let's assume everything has a 100% chance
+    -- to drop right now.
+    if inst.components.lootdropper.chanceloottable then
+        local loot_table = LootTables[inst.components.lootdropper.chanceloottable]
+        if loot_table then
+            for i, entry in ipairs(loot_table) do
+                local prefab = entry[1]
+                local chance = entry[2] -- Not using for now
+                insertLoot(prefab)
+            end
+        end
+    end
+    
+    if inst.components.lootdropper.loot then
+        for k,v in pairs(inst.components.lootdropper.loot) do
+            insertLoot(v)
+        end
+    end
+       
+    return loot
+end
+
 
 function FindTreeOrRock:SetupActionWithTool(target, tool)
 	local action = BufferedAction(self.inst, target, self.actionType,tool)
@@ -59,10 +93,10 @@ function FindTreeOrRock:Visit()
 	--print("FindTreeOrRock:Visit() - " .. tostring(self.status))
     if self.status == READY then
 		-- TODO: Get the loot table for these rather than this hacky hardcode
-		if self.actionType == ACTIONS.CHOP and self.inst.components.inventory:Has("log",20) then
-			self.status = FAILED
-			return
-		end
+		--if self.actionType == ACTIONS.CHOP and self.inst.components.inventory:Has("log",20) then
+		--	self.status = FAILED
+		--	return
+		--end
 		
 	local target = FindEntity(self.inst, self.distance(), function(item)
 			if not item.components.workable then return false end
@@ -78,27 +112,63 @@ function FindTreeOrRock:Visit()
 				return false 
 			end
 			
-			-- Skip this if it only drops stuff we are full of
-			-- TODO, get the lootdroper rather than knowing what prefab it is...
-			if item.prefab and item.prefab == "rock1" then
-				return not self.inst.components.inventory:Has("flint",20)
-			elseif item.prefab and item.prefab == "rock2" then
-				return not self.inst.components.inventory:Has("goldnugget",20)
-			elseif item.prefab and item.prefab == "rock_flintless" then
-				return not self.inst.components.inventory:Has("rocks",40)
+			-- Some prefabs modify their loot table dynamically depending on their condition (burnt trees).
+			-- There's no good way to tell if it will drop a special loot in the code.
+			if item:HasTag("tree") and item:HasTag("burnt") then
+    			 -- Charcoal!
+    			 local invFull = self.inst.components.inventory:IsTotallyFull()
+    			 if not invFull then
+    			     return true
+    			 end
+    			 
+    			 local ch = self.inst.components.inventory:FindItem(function(i) return i.prefab == "charcoal" end)
+    			 if invFull and not ch then
+    			     return false
+    			 elseif invFull and ch then
+    			     return not ch.components.stackable:IsFull()
+    			 end
+    	   
 			end
-
 			
-			-- Found one
-			return true
+			-- Only do work on this item if it will drop something we want
+			local itemLoot = getLootFromTable(item)
+			if not itemLoot then return false end
+			
+			
+			for k,v in pairs(itemLoot) do
+
+			     -- If we aren't ignoring this type of loot.
+			     -- TODO: I don't want to cut down a tree for the acorns only...but I also don't 
+			     --       want to add them to the ignore list as I want them.
+			     --       This is kinda hacky.
+			     if  not self.inst.brain:OnIgnoreList(k) and k ~= "acorn" then
+    			     
+    			     local itemInInv = self.inst.components.inventory:FindItem(function(i) return i.prefab == k end)
+    			     -- If we don't have one and not full, pick it up!
+    			     if not itemInInv and not self.inst.components.inventory:IsTotallyFull() then
+    			         return true
+    			     end
+    			     
+    			     -- Else, if we have one...make sure we want it
+    			     local canStack = itemInInv and itemInInv.components.stackable and not itemInInv.components.stackable:IsFull()
+    			     
+    			     if canStack then 
+    			         return true 
+    			     end
+    			     
+    			     --print("Meh, don't need any " .. k .. "s. What else do you have, " .. item.prefab .. "?")
+    			     -- Check next item in the table
+			     end
+			end
+			
+            -- This is nothing that I want
+			return false
 	
 		end)
 		
 		if target then
-			-- Keep going until it's finished
-			
-			
-			self.currentTarget = target 
+    		-- Keep going until it's finished
+    		self.currentTarget = target
 			
 			local haveRightTool, tool = self:FindAndEquipRightTool()
 
@@ -148,6 +218,16 @@ function FindTreeOrRock:Visit()
 			self.status = SUCCESS
 			return
 		end
+		
+		-- Some things don't return the workDone. Make sure the target
+		-- is still valid (we could have finished in the first action)
+        if not self.currentTarget then
+             self.status = SUCCESS
+             return
+        elseif self.currentTarget and not self.currentTarget.components.workable then
+            self.status = SUCCESS
+            return
+        end
 		
 		-- We've queued up a tool build. Wait for it to be done
 		if self.action.action == ACTIONS.BUILD then

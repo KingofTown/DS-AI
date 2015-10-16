@@ -12,8 +12,8 @@ require "brains/ai_build_helper"
 --]]
 function GoForTheEyes(inst)
 
-  -- If this is true, we're waiting for the spear to be built
-  if inst.waitingForSpear then return false end
+    -- If this is true, we're waiting for the spear to be built
+    if inst.waitingForSpear then return false end
 
 	local closestHostile = GetClosestInstWithTag("hostile", inst, 20)
 	

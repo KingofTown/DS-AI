@@ -38,7 +38,7 @@ function CookFood:Visit()
                         canFillStack = not self.inst.components.inventory:Has(
                                     item.components.cookable.product,theProduct.components.stackable.maxsize)
                     end
-                    if not self.inst.components.inventory:IsFull() or numfound == 1 or (theProduct and canFillStack) then
+                    if not self.inst.components.inventory:IsTotallyFull() or numfound == 1 or (theProduct and canFillStack) then
                         return true
                     end
                     

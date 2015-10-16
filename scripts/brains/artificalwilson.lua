@@ -594,9 +594,7 @@ function ArtificalBrain:OnStart()
 			
 			-- Eat something if hunger gets below .5
 			ManageHunger(self.inst, .5),
-			
-			ManageBase(self.inst),
-				
+
 			-- If there's a touchstone nearby, activate it
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
 				FindAndActivate(self.inst, 25, "resurrectionstone")),
@@ -637,9 +635,7 @@ function ArtificalBrain:OnStart()
 				
 			-- Make sure we eat. During the day, only make sure to stay above 50% hunger.
 			ManageHunger(self.inst,.5),
-			
-			ManageBase(self.inst),
-			
+
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
 				DoAction(self.inst, function() return FindValidHome(self.inst) end, "looking for home", true)),
@@ -648,7 +644,7 @@ function ArtificalBrain:OnStart()
 
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
 					FindResourceOnGround(self.inst, self.GetCurrentSearchDistance)),
-					
+
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goChop",
 					FindTreeOrRock(self.inst, self.GetCurrentSearchDistance, ACTIONS.CHOP)),
 					
@@ -732,7 +728,7 @@ function ArtificalBrain:OnStart()
 	local root = 
         PriorityNode(
         {   
-			-- If any brain function decides necessar, it can add an IsStuck tag to wilson. This will cause the brain to reset. 
+			-- If any brain function decides necessar, it can add an IsStuck tag to wilson. This will cause the brain to reset.
 			IfNode( function() return self.inst:HasTag("IsStuck") end, "stuck",
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
 				

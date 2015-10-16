@@ -17,7 +17,7 @@ function BaseBuilder:OnSave()
 	-- Build the save data map
 	local data = {}
 	-- Add the stuff to save
-	--self.baseMap = baseMap
+	--data.baseMap = baseMap
 	-- Return the map
 	return data
 end
@@ -38,18 +38,16 @@ function BaseBuilder:CheckBase()
 	print("CHECKING BASE")
 
 	local obsticle = nil
-	local homePos = self.inst.components.homeseeker.home
-	if homePos ~= nil then
-		obsticle = FindEntity(homePos,self.baseSize + CLEARING_DISTANCE,function(thing) return self:IsObsticle(thing) end)
+	local home = self.inst.components.homeseeker.home
+	if home ~= nil then
+		obsticle = FindEntity(home,self.baseSize + CLEARING_DISTANCE,function(thing) return self:IsObsticle(thing) end)
 	end
 	
-	local baseBuildings = FindEntity(homePos,self.baseSize + 2,function(thing) return self:IsPartOfBase(thing) end)
-	print(baseBuildings)
+	local baseBuildings = FindEntity(home,self.baseSize + 2,function(thing) return self:IsPartOfBase(thing) end)
+	--print(baseBuildings)
 	
 	if false then
 		-- Build the essentials (firepit, chest)
-	elseif obsticle ~= nil and next(obsticle) ~= nil and self:GetItem("shovel") then
-		self:RemoveObsticle(next(obsticle))
 	else
 		-- Build up our base
 		for k,v in pairs(BASE_BUILDING_PRIORITY) do
@@ -67,35 +65,7 @@ function BaseBuilder:BuildThis(thing)
 	self.inst.components.brain:SetSomethingToBuild(v)
 end
 
-function BaseBuilder:IsObsticle(thing)
-	print("Is this an obsticle???  ")
-	print(thing)
-	if thing == nil then
-		return false
-	elseif not thing.prefab then
-		return false
-	elseif thing.prefab == "sapling" then
-		return true
-	elseif thing.prefab == "seeds" then
-		return true
-	elseif thing.prefab == "evergreen" then
-		return true
-	elseif thing.prefab == "evergreen_sparse" then
-		return true
-	elseif thing.prefab == "log" then
-		return true
-	else
-		return false
-	end
-end
-
-function BaseBuilder:RemoveObsticle(thing)
-	print("REMOVING " .. thing .. "!")
-end
-
 function BaseBuilder:IsPartOfBase(thing)
-	print("Is this part of our base???  ")
-	print(thing)
 	if thing == nil then
 		return false
 	elseif not thing.prefab then
@@ -116,7 +86,21 @@ end
 -------------------------------------------------------------------------------
 
 function BaseBuilder:GetDistanceToBase()
-	return self.inst:GetDistanceSqToPoint(self.inst.components.homeseeker:GetHomePos(self.inst))
+	if self.inst == nil then
+		print("Failed to get the distance to base")
+		return 9999999
+	else
+		return math.pow(self.inst:GetDistanceSqToPoint(self.inst.components.homeseeker:GetHomePos(self.inst)),0.5)
+	end
+end
+
+function BaseBuilder:GetDistanceBetweenPoints(point1, point2)
+	if point1 == nil or point2 == nil then
+		print("Failed to get the distance between points")
+		return 9999999
+	else
+		return math.pow(point1:GetDistanceSqToInst(point2),0.5)
+	end
 end
 
 function BaseBuilder:GetItem(item, num)

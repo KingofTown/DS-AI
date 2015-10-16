@@ -125,6 +125,13 @@ local function MakeClickableBrain()
 			GLOBAL.c_give("rocks",20)
 		end
 	end
+	
+	status.heart:SetClickable(true)
+	status.heart.OnMouseButton = function(self,button,down,x,y)
+		if down == true then
+			GLOBAL.c_give("berries",10)
+		end
+	end
 end
 
 AddSimPostInit(MakeClickableBrain)

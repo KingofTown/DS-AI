@@ -59,14 +59,45 @@ function TransferItemTo(item, fromInst, toInst, fullStack)
       print("TransferItemTo only works with type inventory or type container")
       return false 
    end
+   
+   -- Don't even attempt if the toContainer is full and can't even accept a single one.
+   if toContainer:IsFull() then
+      local itemInDest = toContainer:FindItems(function(i) return i.prefab == item.prefab end)
+      local canFitOne = false
+      for k,v in pairs(itemInDest) do
+         if v.components.stackable and not v.components.stackable:IsFull() then
+            canFitOne = true
+         end
+      end
       
-   -- Passing GetScreenPosition will make the item sail across the screen all fancy like
-   local success = toContainer:GiveItem(item,nil,TheInput:GetScreenPosition(),false,false)
-   --local success = toContainer:GiveItem(item)
-
-   -- If this worked, remove them from the other container   
-   if success then
-      fromContainer:RemoveItem(item, fullStack)
+      -- If we can't even get one...return false
+      if not canFitOne then
+         return false
+      end
+   end
+      
+   -- Remove it before transfer
+   local theItem = item.components.inventoryitem:RemoveFromOwner(fullStack and toContainer.acceptsstacks)
+   
+   local success = false
+   if theItem then
+      --print("removed: " .. tostring(theItem.components.stackable and theItem.components.stackable.stacksize or 1) .. " " .. theItem.prefab .. " from " .. fromInst.prefab)
+      --print("transfering to: " .. toInst.prefab)
+      
+      -- When removing something from the backpack, the game frickin remembers this. 
+      -- When I try to put it back in the inventory...it puts it back in the backpack. WTF mate.
+      if fromInst.components.container and toInst.components.inventory then
+         theItem.prevcontainer = nil
+      end
+      
+      -- Passing GetScreenPosition will make the item sail across the screen all fancy like
+      success = toContainer:GiveItem(theItem,nil,TheInput:GetScreenPosition(),false,false)
+   
+      -- If this failed, give it back.
+      if not success then
+         --print("GiveItem failed")
+         fromContainer:GiveItem(theItem)
+      end
    end
    
    

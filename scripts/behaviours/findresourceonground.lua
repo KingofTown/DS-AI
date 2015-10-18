@@ -96,20 +96,28 @@ function FindResourceOnGround:Visit()
 						                  -- Do we have a slot for this already
                   --local haveItem = self.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
                         
-						local haveFullStack,num = self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 1)
+						local haveFullStack,num = self.inst.components.inventory:Has(
+						                  item.prefab, item.components.stackable and item.components.stackable.maxsize or 1)
 					
 					   -- If we have a full stack of this, ignore it.
                   -- exeption, if we have another stack of this...then I guess we can collect
                   -- multiple stacks of it
                   local canFitInStack = false
                   if num > 0 and haveFullStack then
+                     print("Already have a full stack of : " .. item.prefab)
                      if CanFitInStack(self.inst,item) then
+                        print("But it can fit in a stack")
                         canFitInStack = true
                      else
                         -- We don't need more of this thing right now.
+                        print("We don't need anymore of these")
                         return false
                      end
            
+                  end
+                  
+                  if num == 0 and self.inst.components.inventory:IsTotallyFull() then
+                     return false
                   end
                   
 			
@@ -117,7 +125,6 @@ function FindResourceOnGround:Visit()
 							item.components.inventoryitem.canbepickedup and 
 							not item.components.inventoryitem:IsHeld() and
 							item:IsOnValidGround() and
-							not (self.inst.components.inventory:IsTotallyFull() or not canFitInStack) and
 							not item:HasTag("prey") and
 							not item:HasTag("bird") then
 								return true

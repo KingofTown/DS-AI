@@ -12,7 +12,6 @@ function ManageInventory:Visit()
       -- Not sure if basemanager should handle the chest part as there are probably 
       -- specific places to put things. Just checking backpack here.
       if not IsWearingBackpack(self.inst) then
-
          self.status = FAILED
          return
       end
@@ -23,23 +22,31 @@ function ManageInventory:Visit()
       -- Loop through our inventory and put anything we can in there.
       local inv = self.inst.components.inventory
       for k=1,inv:GetNumSlots() do
-         --print("Checking slot " .. tostring(k))
          local item = inv:GetItemInSlot(k)
          if item then
-            --print("Found " .. item.prefab .. " in slot")
             if ShouldGoInBackpack(item) then
                -- Just because it should go doesn't mean there is room. Find a slot.
                -- This fcn will return false if not successful. Should maybe
                -- do something with that return value...
                TransferItemTo(item,self.inst,backpack,true)
-               --if not TransferItemTo(item,self.inst,backpack,true) then
-               --   -- Maybe only do one thing at a time?
-               --   self.status = FAILED
-               --   return
-               --end
             end
          end
       end
+      
+      -- Loop through the backpack and move things that shouldn't go there to our inventory
+      local bpInv = backpack.components.container
+      for k=1, bpInv:GetNumSlots() do
+         local item = bpInv:GetItemInSlot(k)
+         if item then
+            if not ShouldGoInBackpack(item) then
+               TransferItemTo(item,backpack,self.inst,true)
+               self.status = SUCCESS
+               return
+            end
+         end
+      end
+      
+      
       
       self.status = FAILED
    elseif self.status == RUNNING then

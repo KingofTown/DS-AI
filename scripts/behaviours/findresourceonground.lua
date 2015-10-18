@@ -46,16 +46,16 @@ function FindResourceOnGround:Visit()
         -- This should find all types of backpacks
         -- Note, we can't carry multiple backpacks, so if we have one in our
         -- inventory, it is equipped
-        local function isBackpack(item)
-            if not item then return false end
-            -- Have to use the not operator to cast to true/false.
-            return not not item.components.equippable and not not item.components.container
-        end
+        --local function isBackpack(item)
+        --    if not item then return false end
+        --    -- Have to use the not operator to cast to true/false.
+        --    return not not item.components.equippable and not not item.components.container
+        --end
         
-        local bodyslot = self.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.BODY)
+        --local bodyslot = self.inst.components.inventory:GetEquippedItem(EQUIPSLOTS.BODY)
 
-        if not isBackpack(bodyslot) then
-            local backpack = FindEntity(self.inst, 30, function(item) return isBackpack(item) end)
+        if not IsWearingBackpack(self.inst) then
+            local backpack = FindEntity(self.inst, 30, function(item) return IsItemBackpack(item) end)
             if backpack then
             
                 local action = BufferedAction(self.inst, backpack, ACTIONS.PICKUP)
@@ -71,11 +71,13 @@ function FindResourceOnGround:Visit()
 
 		
 		local target = FindEntity(self.inst, self.distance(), function(item)
-						-- Do we have a slot for this already
-						local haveItem = self.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
-											
+		            if self.inst.brain:OnIgnoreList(item.prefab) or self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then
+		               return false
+		            end
+		            
+			
 						-- Ignore backpack (covered above)
-						if isBackpack(item) then return false end
+						if IsItemBackpack(item) then return false end
 						
 						-- Ignore these dang trinkets
 						if item.prefab and string.find(item.prefab, "trinket") then return false end
@@ -88,20 +90,28 @@ function FindResourceOnGround:Visit()
 							return false 
 						end
 						
+						                  -- Do we have a slot for this already
+                  --local haveItem = self.inst.components.inventory:FindItem(function(invItem) return item.prefab == invItem.prefab end)
+                        
 						local haveFullStack,num = self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 1)
 					
+					   -- If we have a full stack of this, ignore it.
+                  -- exeption, if we have another stack of this...then I guess we can collect
+                  -- multiple stacks of it
+                  if num > 0 and not haveFullStack then
+                     if CanFitInStack(self.inst,item) then
+                        return true
+                     else
+                        return false
+                     end
+                  end
+                  
 			
 						if item.components.inventoryitem and 
 							item.components.inventoryitem.canbepickedup and 
 							not item.components.inventoryitem:IsHeld() and
 							item:IsOnValidGround() and
-							CanFitInStack(self.inst,item) and
-							-- Ignore things we have a full stack of (or one of if it doesn't stack)
-							--not self.inst.components.inventory:Has(item.prefab, item.components.stackable and item.components.stackable.maxsize or 1) and
-							-- Ignore this unless it fits in a stack
-							not (self.inst.components.inventory:IsTotallyFull() and haveItem == nil) and
-							not self.inst.brain:OnIgnoreList(item.prefab) and
-							not self.inst.brain:OnIgnoreList(item.entity:GetGUID()) and
+							not self.inst.components.inventory:IsTotallyFull() and
 							not item:HasTag("prey") and
 							not item:HasTag("bird") then
 								return true

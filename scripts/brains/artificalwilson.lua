@@ -15,9 +15,11 @@ require "behaviours/findtreeorrock"
 require "behaviours/findormakelight"
 require "behaviours/doscience"
 require "behaviours/cookfood"
+require "behaviours/manageinventory"
 
 require "brains/ai_build_helper"
 require "brains/ai_combat_helper"
+require "brains/ai_inventory_helper"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -864,6 +866,12 @@ function ArtificalBrain:OnStart()
 			-- Always fight back or run. Don't just stand there like a tool
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
 				ChaseAndAttack(self.inst,20)),
+			
+			-- Only do these things not very often
+			PriorityNode( {
+			   ManageInventory(self.inst),
+			},1),
+			
 			day,
 			dusk,
 			dusk2,

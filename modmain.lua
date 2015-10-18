@@ -344,9 +344,8 @@ local function ReallyFull(self)
                 --print("Is my " .. self.overflow.prefab .. " full?")
                 overFull = self.overflow.components.container:IsFull()
             end
-        end
-        
-        return invFull and overFull
+        end    
+        return not not invFull and not not overFull
     end
 
 end

@@ -71,6 +71,9 @@ function FindResourceOnGround:Visit()
 
 		
 		local target = FindEntity(self.inst, self.distance(), function(item)
+		
+		            -- Don't return true on anything up here. Only false returns valid or you'll go for 
+		            -- something prematurely (like stuff floating in the middle of the ocean)
 		            if self.inst.brain:OnIgnoreList(item.prefab) or self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then
 		               return false
 		            end
@@ -98,12 +101,15 @@ function FindResourceOnGround:Visit()
 					   -- If we have a full stack of this, ignore it.
                   -- exeption, if we have another stack of this...then I guess we can collect
                   -- multiple stacks of it
-                  if num > 0 and not haveFullStack then
+                  local canFitInStack = false
+                  if num > 0 and haveFullStack then
                      if CanFitInStack(self.inst,item) then
-                        return true
+                        canFitInStack = true
                      else
+                        -- We don't need more of this thing right now.
                         return false
                      end
+           
                   end
                   
 			
@@ -111,7 +117,7 @@ function FindResourceOnGround:Visit()
 							item.components.inventoryitem.canbepickedup and 
 							not item.components.inventoryitem:IsHeld() and
 							item:IsOnValidGround() and
-							not self.inst.components.inventory:IsTotallyFull() and
+							not (self.inst.components.inventory:IsTotallyFull() or not canFitInStack) and
 							not item:HasTag("prey") and
 							not item:HasTag("bird") then
 								return true

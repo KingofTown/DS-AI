@@ -825,7 +825,12 @@ function ArtificalBrain:OnStart()
 				
 			-- If we ever get something in our overflow slot in the inventory, drop it.
 			IfNode(function() return self.inst.components.inventory.activeitem ~= nil end, "drop_activeItem",
-				DoAction(self.inst,function() self.inst.components.inventory:DropActiveItem() end, "drop",true)),
+				DoAction(self.inst,function() local inv = self.inst.components.inventory
+               				     local item = inv:GetActiveItem()
+               				     if item then
+               				        inv:DropItem(item,true,true)
+                                end
+                             end, "drop",true)),
 			
 			-- Quit standing in the fire, idiot
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
@@ -870,7 +875,7 @@ function ArtificalBrain:OnStart()
 			-- Only do these things not very often
 			PriorityNode( {
 			   ManageInventory(self.inst),
-			},1),
+			},2.5),
 			
 			day,
 			dusk,

@@ -31,11 +31,12 @@ function ManageInventory:Visit()
                -- Just because it should go doesn't mean there is room. Find a slot.
                -- This fcn will return false if not successful. Should maybe
                -- do something with that return value...
-               if TransferItemTo(item,self.inst,backpack,true) then
-                  -- Maybe only do one thing at a time?
-                  self.status = SUCCESS
-                  return
-               end
+               TransferItemTo(item,self.inst,backpack,true)
+               --if not TransferItemTo(item,self.inst,backpack,true) then
+               --   -- Maybe only do one thing at a time?
+               --   self.status = FAILED
+               --   return
+               --end
             end
          end
       end

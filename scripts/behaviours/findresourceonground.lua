@@ -25,6 +25,7 @@ end)
 
 function FindResourceOnGround:OnStop()
 	self.inst:RemoveEventCallback("actionfailed", self.locomotorFailed)
+	self.inst:RemoveEventCallback("onreachdestination", self.onReachDest)
 end
 
 function FindResourceOnGround:OnFail()

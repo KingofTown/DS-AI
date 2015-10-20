@@ -418,6 +418,18 @@ local function OnPathFinder(self,data)
 
 end
 
+local function OnActionSuccess(inst,data)
+   local theAction = data.action
+   print("OnActionSuccess - Action: " .. theAction:__tostring())
+end
+
+local function OnActionFailed(inst,data)
+ --{action = bufferedaction, reason = reason}
+   local theAction = data.action
+   local theReason = data.reason or "[Unknown]"
+   print("OnActionFailed - Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+end
+
 
 local actionNumber = 0
 local function ActionDone(self, data)
@@ -666,6 +678,8 @@ function ArtificalBrain:OnStart()
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
 	self.inst:ListenForEvent("noPathFound", OnPathFinder)
+	self.inst:ListenForEvent("actionsuccess", OnActionSuccess)
+	self.inst:ListenForEvent("actionfailed", OnActionFailed)
 	
 	-- TODO: Make this a brain function so we can manage it dynamically
 	self:AddToIgnoreList("seeds")
@@ -677,6 +691,7 @@ function ArtificalBrain:OnStart()
 	self:AddToIgnoreList("red_cap")
 	self:AddToIgnoreList("nitre") -- Make sure to have a brain fcn add this when ready to collect it
 	self:AddToIgnoreList("ash")
+	self:AddToIgnoreList("ice") -- Will need it eventually...just not soon
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
 	if not HasValidHome(self.inst) then
@@ -793,7 +808,8 @@ function ArtificalBrain:OnStart()
 			-- TODO: If we aren't home but we have a home, make a torch and keep running!
 				
 			-- Make sure there's light!
-			MaintainLightSource(self.inst, 30),
+			-- Moved this higher in the brain
+			--MaintainLightSource(self.inst, 30),
 			
 			CookFood(self.inst,10),
 				
@@ -824,6 +840,7 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
 				
 			-- If we ever get something in our overflow slot in the inventory, drop it.
+			-- This will happen occationally if we try to build something we can't hold...etc.
 			IfNode(function() return self.inst.components.inventory.activeitem ~= nil end, "drop_activeItem",
 				DoAction(self.inst,function() local inv = self.inst.components.inventory
                				     local item = inv:GetActiveItem()
@@ -835,6 +852,11 @@ function ArtificalBrain:OnStart()
 			-- Quit standing in the fire, idiot
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
 			
+			-- 
+			WhileNode(function() return clock and clock:IsNight() end, "StayInTheLight",
+			   MaintainLightSource(self.inst, 30)),
+			   
+			   
 			-- When hit, determine if we should fight this thing or not
 			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
 			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
@@ -843,7 +865,7 @@ function ArtificalBrain:OnStart()
 			-- GoForTheEyes will set our combat target. If it returns true, kill
 			-- TODO: Don't do this at night. He will run out into the darkness and override
 			--       his need to stay in the light!
-			WhileNode(function() return GoForTheEyes(self.inst) end, "GoForTheEyes", 
+			WhileNode(function() return not clock:IsNight() and GoForTheEyes(self.inst) end, "GoForTheEyes", 
 				ChaseAndAttack(self.inst, 10,30)),
 			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),
 				

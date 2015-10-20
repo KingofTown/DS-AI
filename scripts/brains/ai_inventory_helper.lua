@@ -2,9 +2,9 @@
 
 function IsItemBackpack(item)
    if not item then return false end
-      -- Have to use the not operator to cast to true/false.
-      return not not item.components.equippable and not not item.components.container
-   end
+   -- Have to use the not operator to cast to true/false.
+   return not not item.components.equippable and not not item.components.container
+end
 
 function IsWearingBackpack(inst)
    if not inst.components.inventory then return false end
@@ -31,6 +31,7 @@ function ShouldGoInBackpack(item)
     -- Anything else...sure, why not
     return true
 end
+
 
 -- Returns true only if the item can fit in an existing stack in the inventory.
 function CanFitInStack(inst,item)
@@ -67,6 +68,7 @@ function TransferItemTo(item, fromInst, toInst, fullStack)
       for k,v in pairs(itemInDest) do
          if v.components.stackable and not v.components.stackable:IsFull() then
             canFitOne = true
+            break
          end
       end
       

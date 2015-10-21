@@ -421,14 +421,18 @@ end
 
 local function OnActionSuccess(inst,data)
    local theAction = data.action
-   print("OnActionSuccess - Action: " .. theAction:__tostring())
+   if(inst:HasTag("debugPrint")) then
+      print("OnActionSuccess - Action: " .. theAction:__tostring())
+   end
 end
 
 local function OnActionFailed(inst,data)
  --{action = bufferedaction, reason = reason}
    local theAction = data.action
    local theReason = data.reason or "[Unknown]"
-   print("OnActionFailed - Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+   if(inst:HasTag("debugPrint")) then
+      print("OnActionFailed - Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+   end
 end
 
 
@@ -616,6 +620,14 @@ function ArtificalBrain:GetSomethingToBuild()
 		self.newPendingBuild = false
 		return self.pendingBuildTable
 	end
+end
+
+-- Returns true if prefab is still in the queue to be built
+function ArtificalBrain:CheckBuildQueued(prefab)
+   if self.newPendingBuild then
+      return self.pendingBuildTable.prefab == prefab
+   end
+   return false
 end
 
 function ArtificalBrain:SetSomethingToBuild(prefab, pos, onsuccess, onfail)

@@ -13,7 +13,15 @@ require "brains/ai_build_helper"
 function GoForTheEyes(inst)
 
    -- If this is true, we're waiting for the spear to be built
-   if inst.waitingForSpear then return false end
+   if inst.waitingForBuild then
+      -- If the build isn't queued and we are in the idle state...something happened
+      if not inst.brain:CheckBuildQueued(inst.waitingForBuild) and inst.sg:HasStateTag("idle") then
+         inst.waitingForBuild = nil
+      else
+         -- Waiting for the brain to make this thing. Nothing to do.
+         return false   
+      end
+   end
    
    local closestHostile = FindEntity(inst, 20, function(guy) return
                            guy:HasTag("hostile") and inst.components.combat:CanTarget(guy) end)
@@ -64,21 +72,21 @@ function GoForTheEyes(inst)
 	  local canBuildSpear = CanPlayerBuildThis(inst,"spear")
     
 	  if canBuildSpear then
-	   -- TODO: Need to check if it's safe to build this. If it's not safe...then don't start!
-	   --       Maybe use what I've got...or run away to build one? No idea.
-	   inst.waitingForSpear = true
-	   inst.brain:SetSomethingToBuild("spear",nil,
-	     function() inst.waitingForSpear = nil end,function() inst.waitingForSpear = nil end)
-	     
-	   -- Gotta wait for that spear to be built
-	   print("Making a spear!")
-	   return false
-		elseif not canBuildSpear and inst.components.combat.target == nil then
+   	   -- TODO: Need to check if it's safe to build this. If it's not safe...then don't start!
+   	   --       Maybe use what I've got...or run away to build one? No idea.
+   	   inst.waitingForBuild = "spear"
+   	   inst.brain:SetSomethingToBuild("spear",nil,
+   	     function() inst.waitingForBuild = nil end,function() inst.waitingForBuild = nil end)
+   	     
+   	   -- Gotta wait for that spear to be built
+   	   print("Making a spear!")
+   	   return false
+	  elseif not canBuildSpear and inst.components.combat.target == nil then
 			-- TODO: Rather than checking to see if we have a combat target, should make
 			--       sure the closest hostile is X away so we have time to craft one.
 			--       What I do not want is to just keep trying to make one while being attacked.
 			--       Returning false here means we'll run away.
-			print("I don't have a good weapon and cannot make one")
+			--print("I don't have a good weapon and cannot make one")
 			return false
 		elseif highestDamageWeapon ~= nil and inst.components.combat.target then
 			print("I'll use what I've got!")

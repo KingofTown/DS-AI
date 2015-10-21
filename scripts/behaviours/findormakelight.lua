@@ -144,21 +144,29 @@ function MaintainLightSource:Visit()
 			if self.inst.LightWatcher:GetLightValue() >= math.max(TUNING.SANITY_LOW_LIGHT,TUNING.SANITY_HIGH_LIGHT/3) then
 			    self.inst.components.locomotor:Stop()
                 self.runningTowardsLight = false
-                -- Return failed here. This isn't important
                 self.status = SUCCESS
                 return
             else
-				-- Keep running towards the light. 
-				-- Set the locomotor to run again incase something interrupted it. This
-				-- is important, dammit! 
-				self.inst.components.locomotor:RunInDirection(
+   				-- Keep running towards the light. 
+   				-- Set the locomotor to run again incase something interrupted it. This
+   				-- is important, dammit! 
+   				self.inst.components.locomotor:RunInDirection(
 						self.inst:GetAngleToPoint(Point(self.currentLightSource.Transform:GetWorldPosition())))
+					self.status = RUNNING
 				return
 			end
 		end
 	
 		-- Waiting for our build to succeed...nothing to do
 		if self.currentBuildAction and self.pendingstatus == nil then
+		   -- In a rare case, we will be waiting for an action, but our stategraph
+		   -- says we aren't doing anything. This isn't right! We've failed!
+		   if self.inst.sg:HasStateTag("idle")then
+		      print("FindOrMakeLight: SG: ---------- \n " .. tostring(self.inst.sg))
+		      self.status = FAILED
+		      return
+		   end
+		   
 			self.status = RUNNING
 			return
 		end

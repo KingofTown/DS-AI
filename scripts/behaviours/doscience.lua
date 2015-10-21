@@ -31,7 +31,7 @@ DoScience = Class(BehaviourNode, function(self, inst, getBuildFn)
 end)
 
 function DoScience:PushNextAction()
-	self.waitingForBuild = true
+	
 	
 	if self.bufferedBuildList then
 		-- Grab the action and remove it from the list
@@ -46,9 +46,17 @@ function DoScience:PushNextAction()
 		
 		print("PushNextAction: " .. action:__tostring())
 		
-		-- Have the buffered action schedule the next one
+		    
+      -- Have the buffered action schedule the next one
 		action:AddSuccessAction(function() self:PushNextAction() end)
-		self.inst.components.locomotor:PushAction(action, true)
+		
+		-- If pos is nil, don't push it to the locomotor.
+		if action.pos == nil then
+		 self.inst:PushBufferedAction(action)
+		else
+		 self.inst.components.locomotor:PushAction(action, true)
+		end
+		self.waitingForBuild = true
 	end
 end
 
@@ -164,6 +172,8 @@ function DoScience:Visit()
 		if self.waitingForBuild then
 			-- If this is set, the buffered list is done (either by error or successfully). 
 			-- Nothing left to do.
+			
+			
 			if self.buildStatus then
 				print("Build status has returned : " .. tostring(self.buildStatus))
 				self.status = self.buildStatus
@@ -179,6 +189,14 @@ function DoScience:Visit()
 					return
 				end
 			end
+			
+			-- If our current buffered action is nil and we are in the idle state...something
+			-- interrupted us. Just leave the node!
+         if self.inst:GetBufferedAction() == nil and self.inst.sg:HasStateTag("idle") then
+            print("DoScience: SG: ---------- \n " .. tostring(self.inst.sg))
+            self.status = FAILED
+            return
+         end
 			
 			-- Waiting for the build to complete
 			--print("Waiting for current build action to complete")

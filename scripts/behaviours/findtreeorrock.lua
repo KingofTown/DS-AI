@@ -1,14 +1,23 @@
-FindTreeOrRock = Class(BehaviourNode, function(self, inst, searchDistanceFn, actionType)
+FindTreeOrRock = Class(BehaviourNode, function(self, inst, searchDistanceFn, actionType, searchMode)
     BehaviourNode._ctor(self, "FindTreeOrRock")
     self.inst = inst
-	self.distance = searchDistanceFn
-	self.actionType = actionType
+    self.actionType = actionType
+    self.searchMode = searchMode
 	self.currentTarget = nil
-	
+	self.distance = searchDistanceFn
+
+	if searchMode == "BaseManagement" then
+		self.targetInst = nil
+		self.getTarget = function() return self.inst.components.basebuilder:GetTargetToClean() end
+	else
+		self.targetInst = inst
+		self.getTarget = self.GetTarget
+	end
+
 	self.onWorkDone = function(inst, data)
 		self.workDone = SUCCESS
 	end
-	
+
 	self.inst:ListenForEvent("workfinished", self.onWorkDone)
 end)
 
@@ -88,39 +97,30 @@ function FindTreeOrRock:FindAndEquipRightTool()
 	return false, nil
 end
 
+function FindTreeOrRock:GetTarget()
+	local target = FindEntity(self.targetInst, self.distance(), function(item)
+		if not item.components.workable then return false end
+		if not item.components.workable:IsActionValid(self.actionType) then return false end
 
-function FindTreeOrRock:Visit()
-	--print("FindTreeOrRock:Visit() - " .. tostring(self.status))
-    if self.status == READY then
-		-- TODO: Get the loot table for these rather than this hacky hardcode
-		--if self.actionType == ACTIONS.CHOP and self.inst.components.inventory:Has("log",20) then
-		--	self.status = FAILED
-		--	return
-		--end
+		-- TODO: Put ignored prefabs
+		if self.inst.brain:OnIgnoreList(item.prefab) then return false end
+		-- We will ignore some things forever
+		if self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then return false end
+		-- Don't go near things with hostile dudes
+		if self.inst.brain:HostileMobNearInst(item) then
+			print("Ignoring " .. item.prefab .. " as there is something spooky by it")
+			return false 
+		end
 		
-	local target = FindEntity(self.inst, self.distance(), function(item)
-			if not item.components.workable then return false end
-			if not item.components.workable:IsActionValid(self.actionType) then return false end
-			
-			-- TODO: Put ignored prefabs
-			if self.inst.brain:OnIgnoreList(item.prefab) then return false end
-			-- We will ignore some things forever
-			if self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then return false end
-			-- Don't go near things with hostile dudes
-			if self.inst.brain:HostileMobNearInst(item) then
-				print("Ignoring " .. item.prefab .. " as there is something spooky by it")
-				return false 
-			end
-			
-			-- Some prefabs modify their loot table dynamically depending on their condition (burnt trees).
-			-- There's no good way to tell if it will drop a special loot in the code.
-			if item:HasTag("tree") and item:HasTag("burnt") then
+		-- Some prefabs modify their loot table dynamically depending on their condition (burnt trees).
+		-- There's no good way to tell if it will drop a special loot in the code.
+		if item:HasTag("tree") and item:HasTag("burnt") then
     			 -- Charcoal!
     			 local invFull = self.inst.components.inventory:IsTotallyFull()
     			 if not invFull then
     			     return true
     			 end
-    			 
+
     			 local ch = self.inst.components.inventory:FindItem(function(i) return i.prefab == "charcoal" end)
     			 if invFull and not ch then
     			     return false
@@ -128,20 +128,20 @@ function FindTreeOrRock:Visit()
     			     return not ch.components.stackable:IsFull()
     			 end
     	   
-			end
-			
-			-- Only do work on this item if it will drop something we want
-			local itemLoot = getLootFromTable(item)
-			if not itemLoot then return false end
-			
-			
-			for k,v in pairs(itemLoot) do
+		end
+		
+		-- Only do work on this item if it will drop something we want
+		local itemLoot = getLootFromTable(item)
+		if not itemLoot then return false end
 
-			     -- If we aren't ignoring this type of loot.
-			     -- TODO: I don't want to cut down a tree for the acorns only...but I also don't 
-			     --       want to add them to the ignore list as I want them.
-			     --       This is kinda hacky.
-			     if  not self.inst.brain:OnIgnoreList(k) and k ~= "acorn" then
+		
+		for k,v in pairs(itemLoot) do
+
+		     -- If we aren't ignoring this type of loot.
+		     -- TODO: I don't want to cut down a tree for the acorns only...but I also don't 
+		     --       want to add them to the ignore list as I want them.
+		     --       This is kinda hacky.
+		     if  not self.inst.brain:OnIgnoreList(k) and k ~= "acorn" then
     			     
     			     local itemInInv = self.inst.components.inventory:FindItem(function(i) return i.prefab == k end)
     			     -- If we don't have one and not full, pick it up!
@@ -158,14 +158,39 @@ function FindTreeOrRock:Visit()
     			     
     			     --print("Meh, don't need any " .. k .. "s. What else do you have, " .. item.prefab .. "?")
     			     -- Check next item in the table
-			     end
-			end
-			
-            -- This is nothing that I want
-			return false
-	
-		end)
+		     end
+		end
 		
+            -- This is nothing that I want
+		return false
+
+	end)
+	
+	return target
+end
+
+function FindTreeOrRock:Visit()
+	--print("FindTreeOrRock:Visit() - " .. tostring(self.status))
+	
+	if self.searchMode == "BaseManagement" then
+		print("UPDATING self.targetInst!!!")
+		self.targetInst = self.inst.components.homeseeker.home
+	end
+
+    if self.targetInst == nil then
+    	-- This happens when the this inst isn't wilson and we haven't set it yet... so pass
+		return
+	elseif self.status == READY then
+		-- TODO: Get the loot table for these rather than this hacky hardcode
+		--if self.actionType == ACTIONS.CHOP and self.inst.components.inventory:Has("log",20) then
+		--	self.status = FAILED
+		--	return
+		--end
+	--if self.inst.components.basebulder:GetTree() then
+
+	--end
+
+		local target = self:GetTarget()
 		if target then
     		-- Keep going until it's finished
     		self.currentTarget = target

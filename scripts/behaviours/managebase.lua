@@ -1,9 +1,8 @@
-MAX_BASE_SIZE = 20
-
 ManageBase = Class(BehaviourNode, function(self, inst)
     BehaviourNode._ctor(self, "ManageBase")
     self.inst = inst
-    self.cleanDist = 0
+	self.maxBaseSize = 20
+	self.maxCleanSize = 22
 end)
 
 function ManageBase:OnFail()
@@ -14,51 +13,31 @@ function ManageBase:OnSucceed()
     self.pendingstatus = SUCCESS
 end
 
-function ManageBase:GetBaseSize()
-	local home = self.inst.components.homeseeker.home
-
-	if home == nil then
-		return 0
-	end
-
-	local x, y, z = home.Transform:GetWorldPosition()
-	local baseBuildings = TheSim:FindEntities(x,y,z,MAX_BASE_SIZE)
-
-	if baseBuildings == nil then
-		return 0
-	end
-
-	local baseSize = 0
-	for k,v in pairs(baseBuildings) do
-		if self.inst.components.basebuilder:IsPartOfBase(v) then
-			local dist = self.inst.components.basebuilder:GetDistanceBetweenPoints(home,v)
-			if dist > baseSize then
-				baseSize = dist
-			end
-		end
-	end
-
-	return baseSize
-end
-
-function ManageBase:IncreaseCleanDistance()
-	self.cleanDist = self.cleanDist + 1
-	print("Incresing the clean distance to " .. self.cleanDist)
-	return self.cleanDist
-end
-
-function ManageBase:GetCleanDist()
-	return self.cleanDist
-end
-
 function ManageBase:Visit()
+	--local home = self.inst.components.homeseeker.home
+	local distanceToBase = self.inst.components.basebuilder:GetDistanceToBase()
+	local baseSize = self.inst.components.basebuilder:GetBaseSize()
+	local cleanSize = self.inst.components.basebuilder.cleanSize
+
+	local priorityTarget = nil
+	if not cleanSize or not self.maxCleanSize then
+		print("FOUND A NIL VALUE!")
+	elseif cleanSize < self.maxCleanSize then
+		priorityTarget = self.inst.components.basebuilder:GetPriorityTarget()
+	end
+
 	print("ManageBase:Visit")
 	print(self.inst.components.basebuilder:GetDistanceToBase())
-	if self.status == READY and self.inst.components.basebuilder:GetDistanceToBase() < 0 and self:GetBaseSize() < 2 then
-		self.inst.components.basebuilder:CheckBase()
-	elseif self:GetBaseSize() < 8 and self.cleanDist < 50 then
-		print("CLEANING UP BASE??? WILSON, THIS MEANS YOU!  " .. self.cleanDist)
 
+	-- Check if anything is on fire
+	-- Check if anything is damaged and in need of repair (just walls?)
+	-- Check if any of our structures are destroyed and in need of removing
+
+	if self.status == READY and distanceToBase < 0 and baseSize < 2 then
+		self.inst.components.basebuilder:UpgradeBase()
+	elseif baseSize < 8 and cleanSize < 50 and priorityTarget then
+		self.inst:PushEvent("cleanBase")
+		print("CLEANING UP BASE??? WILSON, THIS MEANS YOU!")
 	else
 		print "MANAGE BASE ELSE"
 		self.status = FAILED

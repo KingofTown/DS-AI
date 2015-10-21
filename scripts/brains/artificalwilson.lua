@@ -657,7 +657,7 @@ end
 
 function ArtificalBrain:OnStart()
 	local clock = GetClock()
-	
+
 	self.inst:AddComponent("basebuilder")
 	self.inst:AddComponent("cartographer")
 	
@@ -666,7 +666,7 @@ function ArtificalBrain:OnStart()
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
 	self.inst:ListenForEvent("noPathFound", OnPathFinder)
-	
+
 	-- TODO: Make this a brain function so we can manage it dynamically
 	self:AddToIgnoreList("seeds")
 	self:AddToIgnoreList("petals_evil")
@@ -686,13 +686,15 @@ function ArtificalBrain:OnStart()
 			self.inst.components.homeseeker:SetHome(scienceMachine)
 		end
 	end
-	
+
 	-- Things to do during the day
 	local day = WhileNode( function() return clock and clock:IsDay() end, "IsDay",
 		PriorityNode{
 			
 			-- Eat something if hunger gets below .5
 			ManageHunger(self.inst, .5),
+			
+			ManageBase(self.inst),
 
 			-- If there's a touchstone nearby, activate it
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_lookforTouchstone",
@@ -704,7 +706,6 @@ function ArtificalBrain:OnStart()
 
 			-- Collect stuff
 			SelectorNode{
-
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
 					FindResourceOnGround(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
@@ -713,14 +714,14 @@ function ArtificalBrain:OnStart()
 					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.CHOP)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
 					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.MINE)),
-				
+
 					-- Finally, if none of those succeed, increase the search distance for
 					-- the next loop.
 					-- Want this to fail always so we don't increase to max.
 				IfNode( function() return not IsBusy(self.inst) end, "nothing_to_do",
 					NotDecorator(ActionNode(function() return self:IncreaseSearchDistance() end))),
 			},
-				
+
 			-- TODO: Need a good wander function for when searchdistance is at max.
 			IfNode(function() return not IsBusy(self.inst) and CurrentSearchDistance == MAX_SEARCH_DISTANCE end, "maxSearchDistance",
 				DoAction(self.inst, function() return FindSomewhereNewToGo(self.inst) end, "lookingForSomewhere", true)),
@@ -734,6 +735,8 @@ function ArtificalBrain:OnStart()
 				
 			-- Make sure we eat. During the day, only make sure to stay above 50% hunger.
 			ManageHunger(self.inst,.5),
+			
+			ManageBase(self.inst),
 
 			-- Find a good place to call home
 			IfNode( function() return not HasValidHome(self.inst) end, "no home",
@@ -838,6 +841,10 @@ function ArtificalBrain:OnStart()
 			-- Quit standing in the fire, idiot
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
 			
+			EventNode(self.inst, "cleanBase",
+				ActionNode(function() print("CLEAN BASE GOT TRIGGERED!!!!") end)
+				),
+
 			-- When hit, determine if we should fight this thing or not
 			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
 			--	DoAction(self.inst,function() return FightBack(self.inst) end,"fighting",true)),
@@ -854,26 +861,29 @@ function ArtificalBrain:OnStart()
 			RunAway(self.inst, function(guy) return ShouldRunAway(guy) end, RUN_AWAY_SEE_DIST, RUN_AWAY_STOP_DIST),
 
 			-- Try to stay healthy
-			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal", 
+			IfNode(function() return not IsBusy(self.inst) end, "notBusy_heal",
 				ManageHealth(self.inst,.75)),
 				
 			-- Try to stay sane
 			DoAction(self.inst,function() return ManageSanity(self) end, "Manage Sanity", true),
-			
+
 			-- Hunger is managed during the days/nights
 			
 			-- Prototype things whenever we get a chance
 			-- Home is defined as our science machine...
 			--IfNode(function() return not IsBusy(self.inst) and AtHome(self.inst) and not self.inst.currentBufferedBuild end, "atHome", 
 			--	DoAction(self.inst, function() return PrototypeStuff(self.inst) end, "Prototype", true)),
-			
+
 			-- If near a science machine, wilson will prototype stuff!
 			-- Otherwise, if anything is set in the buildtable, this node will build it.
 			DoScience(self.inst, function() return self:GetSomethingToBuild() end),
-				
+
 			-- Always fight back or run. Don't just stand there like a tool
 			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
 				ChaseAndAttack(self.inst,20)),
+
+
+
 			day,
 			dusk,
 			dusk2,
@@ -882,7 +892,7 @@ function ArtificalBrain:OnStart()
         }, .25)
     
     self.bt = BT(self.inst, root)
-	
+
 	self.printDebugInfo = function(self)
 		print("Items on ignore list:")
 		for k,v in pairs(IGNORE_LIST) do 

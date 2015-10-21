@@ -12,10 +12,13 @@ require "brains/ai_build_helper"
 --]]
 function GoForTheEyes(inst)
 
-    -- If this is true, we're waiting for the spear to be built
-    if inst.waitingForSpear then return false end
+   -- If this is true, we're waiting for the spear to be built
+   if inst.waitingForSpear then return false end
+   
+   local closestHostile = FindEntity(inst, 20, function(guy) return
+                           guy:HasTag("hostile") and inst.components.combat:CanTarget(guy) end)
 
-	local closestHostile = GetClosestInstWithTag("hostile", inst, 20)
+	--local closestHostile = GetClosestInstWithTag("hostile", inst, 20)
 	
 	-- No hostile...nothing to do
 	if not closestHostile then return false end

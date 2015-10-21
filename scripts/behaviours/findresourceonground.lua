@@ -105,13 +105,13 @@ function FindResourceOnGround:Visit()
                   -- multiple stacks of it
                   local canFitInStack = false
                   if num > 0 and haveFullStack then
-                     print("Already have a full stack of : " .. item.prefab)
+                     --print("Already have a full stack of : " .. item.prefab)
                      if CanFitInStack(self.inst,item) then
                         print("But it can fit in a stack")
                         canFitInStack = true
                      else
                         -- We don't need more of this thing right now.
-                        print("We don't need anymore of these")
+                        --print("We don't need anymore of these")
                         return false
                      end
            

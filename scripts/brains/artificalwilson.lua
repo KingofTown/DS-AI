@@ -8,6 +8,7 @@ require "behaviours/panic"
 
 require "behaviours/managehunger"
 require "behaviours/managehealth"
+require "behaviours/managesanity"
 require "behaviours/findandactivate"
 require "behaviours/findresourceonground"
 require "behaviours/findresourcetoharvest"
@@ -420,14 +421,18 @@ end
 
 local function OnActionSuccess(inst,data)
    local theAction = data.action
-   print("OnActionSuccess - Action: " .. theAction:__tostring())
+   if(inst:HasTag("debugPrint")) then
+      print("OnActionSuccess - Action: " .. theAction:__tostring())
+   end
 end
 
 local function OnActionFailed(inst,data)
  --{action = bufferedaction, reason = reason}
    local theAction = data.action
    local theReason = data.reason or "[Unknown]"
-   print("OnActionFailed - Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+   if(inst:HasTag("debugPrint")) then
+      print("OnActionFailed - Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+   end
 end
 
 
@@ -499,34 +504,6 @@ local function SetupBufferedAction(inst, action, timeout)
 end
 
 --------------------------------------------------------------------------------
-
-
--- Eat sanity restoring food
--- Put sanity things on top of list when sanity is low
-local function ManageSanity(brain)
-
-	-- Quit picking up flowers all the damn time
-	if brain.inst.components.sanity:GetPercent() < .9 and brain:OnIgnoreList("petals") then
-		brain:RemoveFromIgnoreList("petals")
-	elseif brain.inst.components.sanity:GetPercent() > .9 and not brain:OnIgnoreList("petals") then
-		brain:AddToIgnoreList("petals")
-	end
-	
-	-- TODO!!!
-	if true then 
-		return
-	end
-	
-	if brain.inst.components.sanity:GetPercent() > .75 then return end
-	local sanityMissing = brain.inst.components.sanity:GetMaxSanity() - brain.inst.components.sanity.current
-	
-	local sanityFood = brain.inst.components.inventory:FindItems(function(item) return brain.inst.components.eater:CanEat(item) 
-																	and item.components.edible:GetSanity(brain.inst) > 0 end)
-	
-end
-
-
------------------------------------------------------------------------
 -- Go home stuff
 local function HasValidHome(inst)
     return inst.components.homeseeker and 
@@ -534,12 +511,7 @@ local function HasValidHome(inst)
        inst.components.homeseeker.home:IsValid()
 end
 
-local function GoHomeAction(inst)
-    if  HasValidHome(inst) and
-        not inst.components.combat.target then
-			inst.components.homeseeker:GoHome(true)
-    end
-end
+
 
 local function GetHomePos(inst)
     return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
@@ -554,6 +526,12 @@ local function AtHome(inst)
 	--return inst.components.builder.current_prototyper ~= nil
 
 	return dist <= TUNING.RESEARCH_MACHINE_DIST
+end
+
+local function GoHomeAction(inst)
+    if  HasValidHome(inst) and not AtHome(inst) then
+         inst.components.homeseeker:GoHome(true)
+    end
 end
 
 -- Should keep track of what we build so we don't have to keep checking. 
@@ -645,6 +623,14 @@ function ArtificalBrain:GetSomethingToBuild()
 	end
 end
 
+-- Returns true if prefab is still in the queue to be built
+function ArtificalBrain:CheckBuildQueued(prefab)
+   if self.newPendingBuild then
+      return self.pendingBuildTable.prefab == prefab
+   end
+   return false
+end
+
 function ArtificalBrain:SetSomethingToBuild(prefab, pos, onsuccess, onfail)
 	if self.pendingBuildTable == nil then
 		self.pendingBuildTable = {}
@@ -692,6 +678,7 @@ function ArtificalBrain:OnStart()
 	self:AddToIgnoreList("nitre") -- Make sure to have a brain fcn add this when ready to collect it
 	self:AddToIgnoreList("ash")
 	self:AddToIgnoreList("ice") -- Will need it eventually...just not soon
+	self:AddToIgnoreList("cave_entrance") --We're not going down...quit letting the bats out idiot!
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
 	if not HasValidHome(self.inst) then
@@ -877,7 +864,11 @@ function ArtificalBrain:OnStart()
 				ManageHealth(self.inst,.75)),
 				
 			-- Try to stay sane
-			DoAction(self.inst,function() return ManageSanity(self) end, "Manage Sanity", true),
+			--DoAction(self.inst,function() return ManageSanity(self) end, "Manage Sanity", true),
+			
+			-- TODO: Supply a dynamic sanity function here so wilson tries to stay within the range
+			IfNode(function() return not IsBusy(self.inst) end, "notBusy_sanity",
+			   ManageSanity(self.inst, function() return .9,.75 end)),
 			
 			-- Hunger is managed during the days/nights
 			
@@ -889,15 +880,13 @@ function ArtificalBrain:OnStart()
 			-- If near a science machine, wilson will prototype stuff!
 			-- Otherwise, if anything is set in the buildtable, this node will build it.
 			DoScience(self.inst, function() return self:GetSomethingToBuild() end),
-				
-			-- Always fight back or run. Don't just stand there like a tool
-			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-				ChaseAndAttack(self.inst,20)),
 			
 			-- Only do these things not very often
 			PriorityNode( {
 			   ManageInventory(self.inst),
 			},2.5),
+			
+			
 			
 			day,
 			dusk,

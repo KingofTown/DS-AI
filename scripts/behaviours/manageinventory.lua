@@ -8,6 +8,19 @@ end)
 function ManageInventory:Visit()
 
    if self.status == READY then
+   
+      -- Things to do randomly
+      -- Check for blueprints
+      local blueprints = self.inst.components.inventory:FindItems(function(item) return item.components.teacher ~= nil end)
+      
+      if blueprints then
+         for k,v in pairs(blueprints) do
+            -- Skipping the push action bs...let's just learn the damn thing
+            v.components.teacher:Teach(self.inst)
+         end
+      end
+   
+      ---------------- Backpack management below ------------------------------------
       -- If we don't have a backpack or are not standing near a chest...nothing to do.
       -- Not sure if basemanager should handle the chest part as there are probably 
       -- specific places to put things. Just checking backpack here.

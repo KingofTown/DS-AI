@@ -511,12 +511,7 @@ local function HasValidHome(inst)
        inst.components.homeseeker.home:IsValid()
 end
 
-local function GoHomeAction(inst)
-    if  HasValidHome(inst) and
-        not inst.components.combat.target then
-			inst.components.homeseeker:GoHome(true)
-    end
-end
+
 
 local function GetHomePos(inst)
     return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
@@ -531,6 +526,12 @@ local function AtHome(inst)
 	--return inst.components.builder.current_prototyper ~= nil
 
 	return dist <= TUNING.RESEARCH_MACHINE_DIST
+end
+
+local function GoHomeAction(inst)
+    if  HasValidHome(inst) and not AtHome(inst) then
+         inst.components.homeseeker:GoHome(true)
+    end
 end
 
 -- Should keep track of what we build so we don't have to keep checking. 

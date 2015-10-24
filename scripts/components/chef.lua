@@ -210,59 +210,60 @@ local function GetAllRepeatedCombinations(list, maxChoose, output, startIndex, n
    -- Need to copy the temp table to a new array
    if numChosenSoFar == maxChoose then
       local tempCombo = {}
-      print("Found combination: ")
+      --print("Found combination: ")
       for k,v in pairs(currentCombo) do
-         print(v)
          tempCombo[k] = v
       end
       
       table.insert(output, tempCombo)
+      
+      currentCombo = {}
       return
+   end
+   
+   local function haveEnough(item)
+      -- count number 
+      local count = 0
+      for k,v in pairs(currentCombo) do
+         if v == item.prefab then
+            count = count + 1
+         end
+      end
+      return  count >= (item.components.stackable and item.components.stackable:StackSize() or 1)
    end
    
    local index = 1
    for k,v in pairs(list) do
-      if index >= startIndex then
-         currentCombo[numChosenSoFar + 1] = list[index]
+      if index >= startIndex and not haveEnough(list[index]) then
+         currentCombo[numChosenSoFar + 1] = list[index].prefab
          GetAllRepeatedCombinations(list, maxChoose, output, index, numChosenSoFar+1, currentCombo)
       end
       index = index + 1
    end
-   
    return output
    
 end
 
 function Chef:WhatCanIMake()
+   --local t1 = os.clock()
 
    -- Get a list of all viable food in our inventory
    local candidateFood = self.inst.components.inventory:FindItems(function(item) 
                                        return cooking.IsCookingIngredient(item.prefab) end)
                                        
-   local prefabList = {}
-   
-   -- Generate a unique list of all prefabs we have
-   for k,v in pairs(candidateFood) do
-      table.insert(prefabList,v.prefab)
-   end
-   
-   print("Inventory food to check:")
-   for _,v in pairs(prefabList) do 
-      print(v)
-   end
-   
-
    -- Get all repeated combinations of this stuff...
-   -- TODO: This assumes we have 4 of each of these!
-   --       need to be able to tell it how many of each we have
-   --       so it will not use more than that in the list!!!
-   local combos = GetAllRepeatedCombinations(prefabList,4)
+   local combos = GetAllRepeatedCombinations(candidateFood,4)
    
    if #combos == 0 then
       print("No combinations found")
       return
+   else
+      print("Found " .. #combos .. " combinations")
    end
    
+   -- TODO: Store the actual 4 combos for each recipe in the final table
+   --       so we can just iterate through that to get the 4 ingredients
+   --       we want to use.
    
    -- Generate a table of ingredients from this
    local combo_ingredients = {}
@@ -275,7 +276,7 @@ function Chef:WhatCanIMake()
    -- Now, try all recipes with our combos
    local candidates = {}
    for i,j in pairs(combo_ingredients) do
-      print("Checking possible recipes for " .. tostring(i))
+      --print("Checking possible recipes for " .. tostring(i))
       for k,v in pairs(cooking.recipes.cookpot) do
          if v.test("cookpot", j.names, j.tags) then
             candidates[v.name] = v
@@ -288,6 +289,9 @@ function Chef:WhatCanIMake()
    for k,v in pairs(candidates) do
       print(candidates[k].name)
    end
+   
+   --local t2 = os.clock()
+   --print( os.difftime( t2, t1 ) )
                                              
 end
 

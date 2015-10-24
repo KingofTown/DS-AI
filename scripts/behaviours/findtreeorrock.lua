@@ -103,9 +103,9 @@ function FindTreeOrRock:Visit()
 			if not item.components.workable:IsActionValid(self.actionType) then return false end
 			
 			-- TODO: Put ignored prefabs
-			if self.inst.brain:OnIgnoreList(item.prefab) then return false end
+			if self.inst.components.prioritizer:OnIgnoreList(item.prefab) then return false end
 			-- We will ignore some things forever
-			if self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then return false end
+			if self.inst.components.prioritizer:OnIgnoreList(item.entity:GetGUID()) then return false end
 			-- Don't go near things with hostile dudes
 			if self.inst.brain:HostileMobNearInst(item) then
 				print("Ignoring " .. item.prefab .. " as there is something spooky by it")
@@ -141,7 +141,7 @@ function FindTreeOrRock:Visit()
 			     -- TODO: I don't want to cut down a tree for the acorns only...but I also don't 
 			     --       want to add them to the ignore list as I want them.
 			     --       This is kinda hacky.
-			     if  not self.inst.brain:OnIgnoreList(k) and k ~= "acorn" then
+			     if  not self.inst.components.prioritizer:OnIgnoreList(k) and k ~= "acorn" then
     			     
     			     local itemInInv = self.inst.components.inventory:FindItem(function(i) return i.prefab == k end)
     			     -- If we don't have one and not full, pick it up!

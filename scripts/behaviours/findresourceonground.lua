@@ -75,7 +75,7 @@ function FindResourceOnGround:Visit()
 		
 		            -- Don't return true on anything up here. Only false returns valid or you'll go for 
 		            -- something prematurely (like stuff floating in the middle of the ocean)
-		            if self.inst.brain:OnIgnoreList(item.prefab) or self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then
+		            if self.inst.components.prioritizer:OnIgnoreList(item.prefab) or self.inst.components.prioritizer:OnIgnoreList(item.entity:GetGUID()) then
 		               return false
 		            end
 		            

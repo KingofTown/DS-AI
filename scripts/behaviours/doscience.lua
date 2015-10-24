@@ -113,6 +113,8 @@ function DoScience:Visit()
 							print("Don't know how to build " .. toBuild .. "...adding to build table")
 							table.insert(BUILD_PRIORITY,1,toBuild)
 							build_info[toBuild] = {pos=self.buildTable.pos}
+							--local build_info = {pos=self.buildTable.pos, onsuccess=self.buildTable.onsuccess, onfail=self.buildTable.onfail}
+							--self.inst.components.prioritizer:AddToBuildList(toBuild,build_info)
 						end
 						if self.buildTable.onfail then 
 							self.buildTable.onfail()

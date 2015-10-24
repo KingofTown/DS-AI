@@ -50,11 +50,11 @@ function FindResourceToHarvest:Visit()
 						-- If we have some of this product, it will override the isFull check
 						local haveItem = self.inst.components.inventory:FindItem(function(invItem) return theProductPrefab == invItem.prefab end)
 						
-						if self.inst.brain:OnIgnoreList(item.components.pickable.product) then
+						if self.inst.components.prioritizer:OnIgnoreList(item.components.pickable.product) then
 							return false
 						end
 						-- This entity is to be ignored
-						if self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then return false end
+						if self.inst.components.prioritizer:OnIgnoreList(item.entity:GetGUID()) then return false end
 						
 						if self.inst.brain:HostileMobNearInst(item) then 
 							print("Ignoring " .. item.prefab .. " as there is a monster by it")

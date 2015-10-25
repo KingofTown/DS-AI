@@ -124,6 +124,8 @@ local function MakeClickableBrain()
 			GLOBAL.c_give("flint",20)
 			GLOBAL.c_give("goldnugget",20)
 			GLOBAL.c_give("rocks",20)
+			GLOBAL.c_give("berries",10)
+			GLOBAL.c_give("carrot",10)
 		end
 	end
 	
@@ -351,11 +353,20 @@ local function ReallyFull(self)
                 --print("Is my " .. self.overflow.prefab .. " full?")
                 overFull = self.overflow.components.container:IsFull()
             end
-        end
-        
-        return invFull and overFull
+        end    
+        return not not invFull and not not overFull
     end
 
 end
 
 AddComponentPostInit("inventory", ReallyFull)
+
+-- New components that have OnLoad need to be loaded early!
+local function AddNewComponents(player)
+   player:AddComponent("prioritizer")
+   player:AddComponent("basebuilder")
+   player:AddComponent("cartographer")
+   player:AddComponent("chef")
+end
+
+AddPlayerPostInit(AddNewComponents)

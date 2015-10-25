@@ -6,9 +6,10 @@ require "behaviours/doaction"
 
 require "behaviours/panic"
 
+require "behaviours/managebase"
 require "behaviours/managehunger"
 require "behaviours/managehealth"
-require "behaviours/managebase"
+require "behaviours/managesanity"
 require "behaviours/findandactivate"
 require "behaviours/findresourceonground"
 require "behaviours/findresourcetoharvest"
@@ -16,9 +17,11 @@ require "behaviours/findtreeorrock"
 require "behaviours/findormakelight"
 require "behaviours/doscience"
 require "behaviours/cookfood"
+require "behaviours/manageinventory"
 
 require "brains/ai_build_helper"
 require "brains/ai_combat_helper"
+require "brains/ai_inventory_helper"
 
 local MIN_SEARCH_DISTANCE = 15
 local MAX_SEARCH_DISTANCE = 100
@@ -267,77 +270,9 @@ local ArtificalBrain = Class(Brain, function(self, inst)
     Brain._ctor(self,inst)
 end)
 
--- Helper functions to be used by behaviour nodes
 
-local IGNORE_LIST = {}
-local TRY_AGAIN_DIST = 15
-function ArtificalBrain:OnIgnoreList(prefab)
-	if not prefab then return false end
-	if IGNORE_LIST[prefab] == nil then return false end
-	
-	if IGNORE_LIST[prefab].always then return true end
-		
-	-- Loop through the positions and compare with current pos
-	for k,v in pairs(IGNORE_LIST[prefab].posTable) do
-	   local dsq = self.inst:GetDistanceSqToPoint(v)
-	   if dsq then
-    	   if dsq <= TRY_AGAIN_DIST*TRY_AGAIN_DIST then
-    	       --print("Too close to a point we tried before")
-    	       return true   	       
-    	   end
-       end
-	end
-	
-	print("We can try " .. tostring(prefab) .. " again...")
-	return false
-	
-	-- Some things are only ignored depending on your position
-	
-end
 
--- Need to supply more info to this so it can cleanup things.
--- For example...if wilson is stuck and keeps ignoring things
--- in an area, it would be nice to specify the place to ignore
--- from. 
--- Then when looking up if to ignore something, only ignore it if 
--- standing in the same general area as before.
--- Currently, he will just never look at those things again.
--- Could even do a dumb timeout for these...but then he might
--- just go back to that point at sometime in the future and
--- befored to relearn to ingnore them.
-function ArtificalBrain:AddToIgnoreList(prefab, fromPos)
-	if not prefab then return end
-	print("Adding " .. tostring(prefab) .. " to the ignore list")
-	--IGNORE_LIST[prefab] = fromPos or 1
-	
-	if IGNORE_LIST[prefab] == nil then
-	   IGNORE_LIST[prefab] = {}
-	   IGNORE_LIST[prefab].posTable = {}
-	   IGNORE_LIST[prefab].always = false
-	end
-	
-	-- If this is defined, it means we want to ignore ALL types
-	-- of this prefab.
-	if not fromPos then 
-	   IGNORE_LIST[prefab].always = true
-	else
-	   -- We only want to ignore this specific GUID from this
-	   -- specific region
-	   table.insert(IGNORE_LIST[prefab].posTable, fromPos)
-	end
-end
-
-function ArtificalBrain:RemoveFromIgnoreList(prefab)
-	if not prefab then return end
-	if self:OnIgnoreList(prefab) then
-		IGNORE_LIST[prefab] = nil
-	end
-end
-
--- For debugging 
-function ArtificalBrain:GetIgnoreList()
-    return IGNORE_LIST
-end
+------------------------------------------------------------
 
 -- Helpful function...just returns a point at a random angle 
 -- a distance dist away.
@@ -383,7 +318,8 @@ local function OnPathFinder(self,data)
         end
         if data.target then
             print("Adding " .. data.target.prefab .. " GUID to ignore list")
-            self.brain:AddToIgnoreList(data.target.entity:GetGUID(), Vector3(self.Transform:GetWorldPosition()))
+            --self.brain:AddToIgnoreList(data.target.entity:GetGUID(), Vector3(self.Transform:GetWorldPosition()))
+            self.components.prioritizer:AddToIgnoreList(data.target.entity:GetGUID(), Vector3(self.Transform:GetWorldPosition()))
         end
     end
     
@@ -415,6 +351,22 @@ local function OnPathFinder(self,data)
     -- This will kickstart the brain.
     self:AddTag("IsStuck")
 
+end
+
+local function OnActionSuccess(inst,data)
+   local theAction = data.action
+   if(inst:HasTag("debugPrint")) then
+      print("OnActionSuccess - Action: " .. theAction:__tostring())
+   end
+end
+
+local function OnActionFailed(inst,data)
+ --{action = bufferedaction, reason = reason}
+   local theAction = data.action
+   local theReason = data.reason or "[Unknown]"
+   if(inst:HasTag("debugPrint")) then
+      print("OnActionFailed - Action: " .. theAction:__tostring() .. " failed. Reason: " .. tostring(theReason))
+   end
 end
 
 
@@ -449,7 +401,8 @@ local function ActionDone(self, data)
 		-- inst:ClearBufferedAction() ??? Maybe this will work
 		-- Though, if we're just running in place, this won't fix that as we're probably trying to walk over a river
 		if theAction.target then
-			self.brain:AddToIgnoreList(theAction.target.entity:GetGUID()) -- Add this GUID to the ignore list
+			--self.brain:AddToIgnoreList(theAction.target.entity:GetGUID()) -- Add this GUID to the ignore list
+			self.components.prioritizer:AddToIgnoreList(theAction.target.entity:GetGUID()) -- Add this GUID to the ignore list
 		end
 	elseif state and state == "watchdog" and theAction.action.id ~= self.currentBufferedAction.action.id then
 		print("Ignoring watchdog for old action")
@@ -486,34 +439,6 @@ local function SetupBufferedAction(inst, action, timeout)
 end
 
 --------------------------------------------------------------------------------
-
-
--- Eat sanity restoring food
--- Put sanity things on top of list when sanity is low
-local function ManageSanity(brain)
-
-	-- Quit picking up flowers all the damn time
-	if brain.inst.components.sanity:GetPercent() < .9 and brain:OnIgnoreList("petals") then
-		brain:RemoveFromIgnoreList("petals")
-	elseif brain.inst.components.sanity:GetPercent() > .9 and not brain:OnIgnoreList("petals") then
-		brain:AddToIgnoreList("petals")
-	end
-	
-	-- TODO!!!
-	if true then 
-		return
-	end
-	
-	if brain.inst.components.sanity:GetPercent() > .75 then return end
-	local sanityMissing = brain.inst.components.sanity:GetMaxSanity() - brain.inst.components.sanity.current
-	
-	local sanityFood = brain.inst.components.inventory:FindItems(function(item) return brain.inst.components.eater:CanEat(item) 
-																	and item.components.edible:GetSanity(brain.inst) > 0 end)
-	
-end
-
-
------------------------------------------------------------------------
 -- Go home stuff
 local function HasValidHome(inst)
     return inst.components.homeseeker and 
@@ -521,12 +446,7 @@ local function HasValidHome(inst)
        inst.components.homeseeker.home:IsValid()
 end
 
-local function GoHomeAction(inst)
-    if  HasValidHome(inst) and
-        not inst.components.combat.target then
-			inst.components.homeseeker:GoHome(true)
-    end
-end
+
 
 local function GetHomePos(inst)
     return HasValidHome(inst) and inst.components.homeseeker:GetHomePos()
@@ -541,6 +461,12 @@ local function AtHome(inst)
 	--return inst.components.builder.current_prototyper ~= nil
 
 	return dist <= TUNING.RESEARCH_MACHINE_DIST
+end
+
+local function GoHomeAction(inst)
+    if  HasValidHome(inst) and not AtHome(inst) then
+         inst.components.homeseeker:GoHome(true)
+    end
 end
 
 -- Should keep track of what we build so we don't have to keep checking. 
@@ -632,6 +558,14 @@ function ArtificalBrain:GetSomethingToBuild()
 	end
 end
 
+-- Returns true if prefab is still in the queue to be built
+function ArtificalBrain:CheckBuildQueued(prefab)
+   if self.newPendingBuild then
+      return self.pendingBuildTable.prefab == prefab
+   end
+   return false
+end
+
 function ArtificalBrain:SetSomethingToBuild(prefab, pos, onsuccess, onfail)
 	if self.pendingBuildTable == nil then
 		self.pendingBuildTable = {}
@@ -655,28 +589,43 @@ function ArtificalBrain:OnStop()
 	self.inst:RemoveTag("DoingAction")
 end
 
+-- This isn't really used...
+-- but if a component wants to know if this brain
+-- is loaded...just do
+-- if inst.brain.IsAILoaded ~= nil then
+-- ...
+function ArtificalBrain:IsAILoaded()
+   self.isLoaded = true
+end
+
 function ArtificalBrain:OnStart()
 	local clock = GetClock()
 
-	self.inst:AddComponent("basebuilder")
-	self.inst:AddComponent("cartographer")
-	
+	-- These are added in playerPostInit in modmain
+	--self.inst:AddComponent("cartographer")
+	--self.inst:AddComponent("prioritizer")
+
 	self.inst:ListenForEvent("actionDone",ActionDone)
 	self.inst:ListenForEvent("buildstructure", ListenForBuild)
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)
 	self.inst:ListenForEvent("noPathFound", OnPathFinder)
 
+	self.inst:ListenForEvent("actionsuccess", OnActionSuccess)
+	self.inst:ListenForEvent("actionfailed", OnActionFailed)
+
 	-- TODO: Make this a brain function so we can manage it dynamically
-	self:AddToIgnoreList("seeds")
-	self:AddToIgnoreList("petals_evil")
-	self:AddToIgnoreList("marsh_tree")
-	self:AddToIgnoreList("marsh_bush")
-	self:AddToIgnoreList("tallbirdegg")
-	self:AddToIgnoreList("pinecone")
-	self:AddToIgnoreList("red_cap")
-	self:AddToIgnoreList("nitre") -- Make sure to have a brain fcn add this when ready to collect it
-	self:AddToIgnoreList("ash")
+	self.inst.components.prioritizer:AddToIgnoreList("seeds")
+	self.inst.components.prioritizer:AddToIgnoreList("petals_evil")
+	self.inst.components.prioritizer:AddToIgnoreList("marsh_tree")
+	self.inst.components.prioritizer:AddToIgnoreList("marsh_bush")
+	self.inst.components.prioritizer:AddToIgnoreList("tallbirdegg")
+	self.inst.components.prioritizer:AddToIgnoreList("pinecone")
+	self.inst.components.prioritizer:AddToIgnoreList("red_cap")
+	self.inst.components.prioritizer:AddToIgnoreList("nitre") -- Make sure to have a brain fcn add this when ready to collect it
+	self.inst.components.prioritizer:AddToIgnoreList("ash")
+	self.inst.components.prioritizer:AddToIgnoreList("ice") -- Will need it eventually...just not soon
+	self.inst.components.prioritizer:AddToIgnoreList("cave_entrance") --We're not going down...quit letting the bats out idiot!
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
 	if not HasValidHome(self.inst) then
@@ -800,7 +749,9 @@ function ArtificalBrain:OnStart()
 			-- TODO: If we aren't home but we have a home, make a torch and keep running!
 				
 			-- Make sure there's light!
-			MaintainLightSource(self.inst, 30),
+
+			-- Moved this higher in the brain
+			--MaintainLightSource(self.inst, 30),
 
 			CookFood(self.inst,10),
 			
@@ -835,15 +786,21 @@ function ArtificalBrain:OnStart()
 				DoAction(self.inst,function() print("Trying to fix this...") return FixStuckWilson(self.inst) end, "alive3",true)),
 				
 			-- If we ever get something in our overflow slot in the inventory, drop it.
+			-- This will happen occationally if we try to build something we can't hold...etc.
 			IfNode(function() return self.inst.components.inventory.activeitem ~= nil end, "drop_activeItem",
-				DoAction(self.inst,function() self.inst.components.inventory:DropActiveItem() end, "drop",true)),
+				DoAction(self.inst,function() local inv = self.inst.components.inventory
+               				     local item = inv:GetActiveItem()
+               				     if item then
+               				        inv:DropItem(item,true,true)
+                                end
+                             end, "drop",true)),
 			
 			-- Quit standing in the fire, idiot
 			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
-			
-			EventNode(self.inst, "cleanBase",
-				ActionNode(function() print("CLEAN BASE GOT TRIGGERED!!!!") end)
-				),
+
+			--
+			WhileNode(function() return clock and clock:IsNight() end, "StayInTheLight",
+			   MaintainLightSource(self.inst, 30)),
 
 			-- When hit, determine if we should fight this thing or not
 			--IfNode( function() return self.inst.components.combat.target ~= nil end, "hastarget", 
@@ -853,7 +810,7 @@ function ArtificalBrain:OnStart()
 			-- GoForTheEyes will set our combat target. If it returns true, kill
 			-- TODO: Don't do this at night. He will run out into the darkness and override
 			--       his need to stay in the light!
-			WhileNode(function() return GoForTheEyes(self.inst) end, "GoForTheEyes", 
+			WhileNode(function() return not clock:IsNight() and GoForTheEyes(self.inst) end, "GoForTheEyes", 
 				ChaseAndAttack(self.inst, 10,30)),
 			--DoAction(self.inst, function() return GoForTheEyes(self.inst) end, "GoForTheEyes", true),
 				
@@ -865,7 +822,11 @@ function ArtificalBrain:OnStart()
 				ManageHealth(self.inst,.75)),
 				
 			-- Try to stay sane
-			DoAction(self.inst,function() return ManageSanity(self) end, "Manage Sanity", true),
+			--DoAction(self.inst,function() return ManageSanity(self) end, "Manage Sanity", true),
+			
+			-- TODO: Supply a dynamic sanity function here so wilson tries to stay within the range
+			IfNode(function() return not IsBusy(self.inst) end, "notBusy_sanity",
+			   ManageSanity(self.inst, function() return .9,.75 end)),
 
 			-- Hunger is managed during the days/nights
 			
@@ -878,11 +839,10 @@ function ArtificalBrain:OnStart()
 			-- Otherwise, if anything is set in the buildtable, this node will build it.
 			DoScience(self.inst, function() return self:GetSomethingToBuild() end),
 
-			-- Always fight back or run. Don't just stand there like a tool
-			WhileNode(function() return self.inst.components.combat.target ~= nil and self.inst:HasTag("FightBack") end, "Fight Mode",
-				ChaseAndAttack(self.inst,20)),
-
-
+			-- Only do these things not very often
+			PriorityNode( {
+			   ManageInventory(self.inst),
+			},2.5),
 
 			day,
 			dusk,

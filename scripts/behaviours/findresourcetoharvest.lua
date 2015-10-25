@@ -44,7 +44,7 @@ function FindResourceToHarvest:OnSucceed()
 end
 
 function FindResourceToHarvest:GetTarget()
-	local target = FindEntity(self.targetInst, self.distance(), function(item)
+	local target = FindEntity(self.inst, self.distance(), function(item)	
 			if item.components.pickable and item.components.pickable:CanBePicked() and item.components.pickable.caninteractwith then
 				local theProductPrefab = item.components.pickable.product
 				if theProductPrefab == nil then
@@ -54,17 +54,17 @@ function FindResourceToHarvest:GetTarget()
 				-- If we have some of this product, it will override the isFull check
 				local haveItem = self.inst.components.inventory:FindItem(function(invItem) return theProductPrefab == invItem.prefab end)
 				
-				if self.inst.brain:OnIgnoreList(item.components.pickable.product) then
+				if self.inst.components.prioritizer:OnIgnoreList(item.components.pickable.product) then
 					return false
 				end
 				-- This entity is to be ignored
-				if self.inst.brain:OnIgnoreList(item.entity:GetGUID()) then return false end
+				if self.inst.components.prioritizer:OnIgnoreList(item.entity:GetGUID()) then return false end
 				
 				if self.inst.brain:HostileMobNearInst(item) then 
 					print("Ignoring " .. item.prefab .. " as there is a monster by it")
 					return false 
 				end
-				
+
 				-- Check to see if we have a full stack of this item
 				local theProduct = self.inst.components.inventory:FindItem(function(item) return (item.prefab == theProductPrefab) end)
 				if theProduct then

@@ -112,9 +112,24 @@ function FindTreeOrRock:GetTarget()
 			return false 
 		end
 		
-		-- Some prefabs modify their loot table dynamically depending on their condition (burnt trees).
-		-- There's no good way to tell if it will drop a special loot in the code.
-		if item:HasTag("tree") and item:HasTag("burnt") then
+
+	local target = FindEntity(self.inst, self.distance(), function(item)
+			if not item.components.workable then return false end
+			if not item.components.workable:IsActionValid(self.actionType) then return false end
+			
+			-- TODO: Put ignored prefabs
+			if self.inst.components.prioritizer:OnIgnoreList(item.prefab) then return false end
+			-- We will ignore some things forever
+			if self.inst.components.prioritizer:OnIgnoreList(item.entity:GetGUID()) then return false end
+			-- Don't go near things with hostile dudes
+			if self.inst.brain:HostileMobNearInst(item) then
+				print("Ignoring " .. item.prefab .. " as there is something spooky by it")
+				return false 
+			end
+			
+			-- Some prefabs modify their loot table dynamically depending on their condition (burnt trees).
+			-- There's no good way to tell if it will drop a special loot in the code.
+			if item:HasTag("tree") and item:HasTag("burnt") then
     			 -- Charcoal!
     			 local invFull = self.inst.components.inventory:IsTotallyFull()
     			 if not invFull then
@@ -136,13 +151,11 @@ function FindTreeOrRock:GetTarget()
 
 		
 		for k,v in pairs(itemLoot) do
-
-		     -- If we aren't ignoring this type of loot.
-		     -- TODO: I don't want to cut down a tree for the acorns only...but I also don't 
-		     --       want to add them to the ignore list as I want them.
-		     --       This is kinda hacky.
-		     if  not self.inst.brain:OnIgnoreList(k) and k ~= "acorn" then
-    			     
+			     -- If we aren't ignoring this type of loot.
+			     -- TODO: I don't want to cut down a tree for the acorns only...but I also don't 
+			     --       want to add them to the ignore list as I want them.
+			     --       This is kinda hacky.
+			     if  not self.inst.components.prioritizer:OnIgnoreList(k) and k ~= "acorn" then
     			     local itemInInv = self.inst.components.inventory:FindItem(function(i) return i.prefab == k end)
     			     -- If we don't have one and not full, pick it up!
     			     if not itemInInv and not self.inst.components.inventory:IsTotallyFull() then
@@ -152,7 +165,7 @@ function FindTreeOrRock:GetTarget()
     			     -- Else, if we have one...make sure we want it
     			     local canStack = itemInInv and itemInInv.components.stackable and not itemInInv.components.stackable:IsFull()
     			     
-    			     if canStack then 
+    			     if canStack then
     			         return true 
     			     end
     			     

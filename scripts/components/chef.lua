@@ -4,18 +4,9 @@ local Chef = Class(function(self, inst)
    self.hungerRecs = {}
    self.sanityRecs = {}
    
-   -- These are things we've learned about. They should
-   -- be saved.
-   self.ct = {}
-   self.knownRecipes = {}
-   
-   -- Generate an ordered list of recipes for the 3 vals we care about.
-   -- Could persist this list on save...but then we wouldn't be able to
-   -- adapt to new recipes (mods, etc). 
+   -- Populate the above tables
    self:GenerateBestRecipes()
-   
-   -- Test fcn
-   self:InputHardCodedRecipes()
+
 end)
 
 local cooking = require("cooking")
@@ -46,32 +37,15 @@ function Chef:GenerateBestRecipes()
    table.sort(self.sanityRecs,sortByHighest)
 end
 
--- Until I figure out how to learn these things...
-function Chef:InputHardCodedRecipes()
-   local meatball_recipes = {
-      {"ice","ice","ice","monstermeat"},
-      {"ice","ice","berries","monstermeat"},
-      {"ice", "berries", "berries", "monstermeat"},
-      {"berries","berries","berries","monstermeat"}
-   }
-   self.knownRecipes["meatballs"] = meatball_recipes
-
-end
-
-
-
 function Chef:OnSave()
    -- Build the save data map
    local data = {}
-   data.ct = self.ct
-   data.knownRecipes = self.knownRecipes
    return data
 end
 
 -- Load our utility map
 function Chef:OnLoad(data, newents)
-   self.ct = data and data.ct or {}
-   self.knownRecipes = data and data.knownRecipes or {}
+
 end
 
 -- This runs every game tick. Update the utility
@@ -79,59 +53,7 @@ function Chef:OnUpdate(dt)
 
 end
 
-
-
--- Given our inventory, what can we make that is good.
--- What do we need right now? 
---    i.e. if we are low on health, health food is what we need
---         or low on sanity...sanity food
---         or low on hunger...hunger food!
---    If we aren't low on anything, then what will we want? 
---         Probably a mix of health and hunger food. 
---             Trailmix and meatballs usually...
 function Chef:MakeSomethingGood()
-
-   local listOfIngredients = self.inst.components.inventory:FindItems(function(item) 
-                                             return cooking.IsCookingIngredient(item.prefab) end)
-                                             
-   -- print what ingredients we have
-   for k,v in pairs(listOfIngredients) do
-      local ings = cooking.ingredients[v.prefab]
-      if ings then
-         for i,j in pairs(ings.tags) do
-            print(v.prefab)
-            print(i,j)
-         end
-      end
-   end
-   
-   -- Just test all combinations? 
-   -- I mean...there should be some rhyme/reason to this.
-   -- Maybe I have a list of 'good' recipes and just go down the list and see
-   -- if I can make it with what I've got.
-   
-   --[[
-   local ingredients = {}  
-   for k,v in pairs(listOfIngredients) do
-      -- Seriously..this seems like it will be a lot to search through.
-      -- For testing...let's return the first thing that we can make (that isn't wet goop)
-      
-      local num = 1
-      if v.components.stackable then
-         num = v.components.stackable:StackSize()
-      end
-      
-      if #ingredients < 4 then
-         table.insert(ingredients, v.prefab)
-      end
-      
-      if #ingredients == 4 then
-         break
-      end
-      
-   end
-   
-   --]]
 
 end
 
@@ -140,26 +62,12 @@ function Chef:MakeMeASandwich(result, cooker)
 
 end
 
-local function recursiveCheck(array, keys, level)
-   if not level then level = 1 end
-   local key = keys[level]
 
-   -- Made it to the end. Return final value
-   if level == 4 then return array[key] end
-
-   return array[key] and recursiveCheck(array[key],level+1) or false
-end
-
-function Chef:HasComboBeenTested(combo)
-   -- Sort the elements of the combo array by strings
-   local sorted = {}
-   for n in pairs(combo) do table.insert(sorted,n) end
-   table.sort(sorted)
-
-   return recursiveCheck(self.ct, sorted)
-end
-
--- Damn local functions. This is straight from cooking -------
+----------------------------------------------------------------
+-- The following are stolen straight from "cooking.lua"
+-- This is taken from the RoG file...so hopefully it works with
+-- the base game. It looks like it should, it's mostly doing
+-- string compares.
 local aliases=
 {
    cookedsmallmeat = "smallmeat_cooked",
@@ -196,11 +104,8 @@ end
 ---------------------------------------------------------------
 
 
--- Compres our inventory into the ingredient tags. From there
--- we can generate all possible combinations of ingredients and 
--- see what we can make
-
--- TODO: Should bound this in case list is huge
+-- Recursive function to generate all combinations 
+-- Formula for computing k-combination with repitition from n elements is: (n+k-1k) = (n+k-1n-1)
 local function GetAllRepeatedCombinations(list, maxChoose, output, startIndex, numChosenSoFar, currentCombo)
    if not startIndex then startIndex = 1 end
    if not numChosenSoFar then numChosenSoFar = 0 end
@@ -212,6 +117,7 @@ local function GetAllRepeatedCombinations(list, maxChoose, output, startIndex, n
       local tempCombo = {}
       --print("Found combination: ")
       for k,v in pairs(currentCombo) do
+         --print(v)
          tempCombo[k] = v
       end
       
@@ -222,7 +128,6 @@ local function GetAllRepeatedCombinations(list, maxChoose, output, startIndex, n
    end
    
    local function haveEnough(item)
-      -- count number 
       local count = 0
       for k,v in pairs(currentCombo) do
          if v == item.prefab then
@@ -241,11 +146,11 @@ local function GetAllRepeatedCombinations(list, maxChoose, output, startIndex, n
       index = index + 1
    end
    return output
-   
 end
 
+-- Takes the entire inventory and generates a list 
 function Chef:WhatCanIMake()
-   --local t1 = os.clock()
+   local t1 = os.clock()
 
    -- Get a list of all viable food in our inventory
    local candidateFood = self.inst.components.inventory:FindItems(function(item) 
@@ -254,11 +159,13 @@ function Chef:WhatCanIMake()
    -- Get all repeated combinations of this stuff...
    local combos = GetAllRepeatedCombinations(candidateFood,4)
    
-   if #combos == 0 then
-      print("No combinations found")
-      return
-   else
-      print("Found " .. #combos .. " combinations")
+   if self.inst:HasTag("debugPrint") then
+      if #combos == 0 then
+         print("No combinations found")
+         return
+      else
+         print("Found " .. #combos .. " combinations")
+      end
    end
    
    -- TODO: Store the actual 4 combos for each recipe in the final table
@@ -285,13 +192,17 @@ function Chef:WhatCanIMake()
    end   
 
    
-   print("We can make: ")
-   for k,v in pairs(candidates) do
-      print(candidates[k].name)
+   local t2 = os.clock()
+
+   if self.inst:HasTag("debugPrint") then
+      print("We can make: ")
+      for k,v in pairs(candidates) do
+         print(candidates[k].name)
+      end
+      print("CPU Time: " .. os.difftime( t2, t1 ) )
    end
    
-   --local t2 = os.clock()
-   --print( os.difftime( t2, t1 ) )
+
                                              
 end
 

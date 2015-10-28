@@ -371,6 +371,7 @@ local function OnActionFailed(inst,data)
 end
 
 
+--[[
 local actionNumber = 0
 local function ActionDone(self, data)
 	local state = data.state
@@ -411,6 +412,7 @@ local function ActionDone(self, data)
 	
 	self:RemoveTag("DoingAction")
 end
+--]]
 
 -- Make him execute a 'RunAway' action to try to fix his angle?
 local function FixStuckWilson(inst)
@@ -551,7 +553,7 @@ end
 
 function ArtificalBrain:OnStop()
 	print("Stopping the brain!")
-	self.inst:RemoveEventCallback("actionDone",ActionDone)
+	--self.inst:RemoveEventCallback("actionDone",ActionDone)
 	self.inst:RemoveEventCallback("buildstructure", ListenForBuild)
 	self.inst:RemoveEventCallback("builditem",ListenForBuild)
 	self.inst:RemoveEventCallback("attacked", OnHitFcn)
@@ -579,7 +581,7 @@ function ArtificalBrain:OnStart()
 	--self.inst:AddComponent("cartographer")
 	--self.inst:AddComponent("prioritizer")
 	
-	self.inst:ListenForEvent("actionDone",ActionDone)
+	--self.inst:ListenForEvent("actionDone",ActionDone)
 	self.inst:ListenForEvent("buildstructure", ListenForBuild)
 	self.inst:ListenForEvent("builditem", ListenForBuild)
 	self.inst:ListenForEvent("attacked", OnHitFcn)

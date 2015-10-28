@@ -65,10 +65,19 @@ function DontBeOnFire:Visit()
          
          local runAngle = (avg + 180) % 360
          
+         -- We calculated the best escape angle. Now find the true escape angle that wont run into walls or stuff
+         local offset, resultAngle = FindWalkableOffset(self.inst:GetPosition(), runAngle, 5, 12, true)
+         
+         -- There was nowhere in this direction we could run! Run towards the fire in hopes
+         -- the path is just through the flames 
+         if not resultAngle then
+            resultAngle = avg
+         end
+         
          --print("Running at angle: " .. tostring(runAngle))
-         self.inst.components.locomotor:RunInDirection(runAngle)
+         self.inst.components.locomotor:RunInDirection(resultAngle)
          -- Keep running for a bit before recalculating the new angle
-         self.waittime = GetTime() + 2
+         self.waittime = GetTime() + 1.5
       end
          
       self:Sleep(self.waittime - GetTime())

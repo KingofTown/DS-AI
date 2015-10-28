@@ -17,6 +17,8 @@ require "behaviours/findormakelight"
 require "behaviours/doscience"
 require "behaviours/cookfood"
 require "behaviours/manageinventory"
+require "behaviours/gordonramsay"
+require "behaviours/dontbeonfire"
 
 require "brains/ai_build_helper"
 require "brains/ai_combat_helper"
@@ -420,23 +422,6 @@ local function FixStuckWilson(inst)
     end
 end
 
--- Adds our custom success and fail callback to a buffered action
--- actionNumber is for a watchdog node
-
-local function SetupBufferedAction(inst, action, timeout)
-	if timeout == nil then 
-		timeout = CurrentSearchDistance 
-	end
-	inst:AddTag("DoingAction")
-	inst.currentAction = inst:DoTaskInTime((CurrentSearchDistance*.75)+3,function() ActionDone(inst, {theAction = action, state="watchdog", actionNum=actionNumber}) end)
-	inst.currentBufferedAction = action
-	action:AddSuccessAction(function() inst:PushEvent("actionDone",{theAction = action, state="success"}) end)
-	action:AddFailAction(function() inst:PushEvent("actionDone",{theAction = action, state="failed"}) end)
-	print(action:__tostring())
-	actionNumber = actionNumber + 1
-	return action	
-end
-
 --------------------------------------------------------------------------------
 -- Go home stuff
 local function HasValidHome(inst)
@@ -782,7 +767,8 @@ function ArtificalBrain:OnStart()
                              end, "drop",true)),
 			
 			-- Quit standing in the fire, idiot
-			WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
+			--WhileNode(function() return self.inst.components.health.takingfiredamage end, "OnFire", Panic(self.inst) ),
+			DontBeOnFire(self.inst),
 			
 			-- 
 			WhileNode(function() return clock and clock:IsNight() end, "StayInTheLight",
@@ -814,6 +800,7 @@ function ArtificalBrain:OnStart()
 			-- TODO: Supply a dynamic sanity function here so wilson tries to stay within the range
 			IfNode(function() return not IsBusy(self.inst) end, "notBusy_sanity",
 			   ManageSanity(self.inst, function() return .9,.75 end)),
+			   
 			
 			-- Hunger is managed during the days/nights
 			
@@ -828,6 +815,7 @@ function ArtificalBrain:OnStart()
 			
 			-- Only do these things not very often
 			PriorityNode( {
+			   MasterChef(self.inst),
 			   ManageInventory(self.inst),
 			},2.5),
 			

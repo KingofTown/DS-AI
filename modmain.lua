@@ -126,6 +126,15 @@ local function MakeClickableBrain()
 			GLOBAL.c_give("rocks",20)
 			GLOBAL.c_give("berries",10)
 			GLOBAL.c_give("carrot",10)
+			GLOBAL.c_give("acorn_cooked",4)
+			GLOBAL.c_give("eggs",4)
+			GLOBAL.c_give("monstermeat",4)
+			GLOBAL.c_give("smallmeat",4)
+			GLOBAL.c_give("corn",4)
+			GLOBAL.c_give("honey",4)
+			GLOBAL.c_give("fish",4)
+			GLOBAL.c_give("red_cap",4)
+			GLOBAL.c_give("green_cap",4)
 		end
 	end
 end
@@ -359,6 +368,7 @@ local function AddNewComponents(player)
    player:AddComponent("prioritizer")
    player:AddComponent("cartographer")
    player:AddComponent("chef")
+   player:AddTag("debugPrint")
 end
 
 AddPlayerPostInit(AddNewComponents)

@@ -68,6 +68,7 @@ end
 local BUILD_PRIORITY = {
 		"spear",
 		"backpack",
+		"cookpot",
 }
 
 -- The BUILD_PRIORITY contains the index into the build info table

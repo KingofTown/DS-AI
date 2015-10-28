@@ -188,6 +188,13 @@ function FindTreeOrRock:Visit()
 					thingToBuild = "pickaxe"
 				end
 				
+            -- Make sure we have room for it! 
+            -- TODO: Drop something else? Or just wait? 
+            if self.inst.components.inventory:IsTotallyFull() then 
+              self.status = FAILED
+              return
+            end
+				
 				-- Axe and pickaxe are always level 1...so we don't need to do a more intense check here. Just see if 
 				-- we have the resources and craft it.
 				if thingToBuild and self.inst.components.builder and self.inst.components.builder:CanBuild(thingToBuild) then

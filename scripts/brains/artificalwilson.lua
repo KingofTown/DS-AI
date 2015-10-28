@@ -4,7 +4,6 @@ require "behaviours/chaseandattack"
 require "behaviours/runaway"
 require "behaviours/doaction"
 
-require "behaviours/panic"
 
 require "behaviours/managehunger"
 require "behaviours/managehealth"
@@ -19,6 +18,7 @@ require "behaviours/cookfood"
 require "behaviours/manageinventory"
 require "behaviours/gordonramsay"
 require "behaviours/dontbeonfire"
+require "behaviours/findthingtoburn"
 
 require "brains/ai_build_helper"
 require "brains/ai_combat_helper"
@@ -525,7 +525,7 @@ end
 -- Used by doscience node. It expects a table returned with
 -- These really should be part of the builder component...but I'm too lazy to add them there. 
 function ArtificalBrain:GetSomethingToBuild()
-	if self.newPendingBuild then
+	if self.newPendingBuild and self.newPendingBuild == true then
 		self.newPendingBuild = false
 		return self.pendingBuildTable
 	end
@@ -542,6 +542,17 @@ end
 function ArtificalBrain:SetSomethingToBuild(prefab, pos, onsuccess, onfail)
 	if self.pendingBuildTable == nil then
 		self.pendingBuildTable = {}
+	end
+	
+	-- If this is set, it means the last build we had queued never got a chance
+	-- to be called. Invoke the onfail if there was one as we are overwriting this
+	-- build. 
+	-- TODO: Move this to the prioritizer and make it a list so we can just queue
+	--       the builds...
+	if self.newPendingBuild and self.newPendingBuild == true then
+	  if self.pendingBuildTable.onfail then
+	     self.pendingBuildTable.onfail()
+	  end
 	end
 	
 	self.pendingBuildTable.prefab = prefab
@@ -628,7 +639,8 @@ function ArtificalBrain:OnStart()
 
 			-- Collect stuff
 			SelectorNode{
-
+            IfNode( function() return not IsBusy(self.inst) end, "notBusy_goBurn",
+               FindThingToBurn(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
 					FindResourceOnGround(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",

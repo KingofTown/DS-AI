@@ -18,6 +18,11 @@ MasterChef = Class(BehaviourNode, function(self, inst)
    -- This node will move to the RUNNING state after pushing the RUMMAGE action and
    -- should remain there until this happens.
    self.openedCooker = function(inst, data)
+      if self.status ~= RUNNING then
+         print("Wait...how did this happen?")
+         -- Not sure how we opened this outisde of running state! Nothing to do.
+         return
+      end
       if self.currentCooker and data and data.container == self.currentCooker then
          -- We have arrived at our cooker. Push the cook action
          local act = self.inst.components.chef:MakeSomethingGood(self.currentCooker,
@@ -36,12 +41,24 @@ MasterChef = Class(BehaviourNode, function(self, inst)
    end
 
    self.inst:ListenForEvent("opencontainer", self.openedCooker)
+   
+   -- If we close the container, we are done with this node. Don't just
+   -- sit in the running state forever. 
+   self.closedCooker = function(inst,data)
+      if self.currentCooker and data and data.container == self.currentCooker then
+         print("Cooker closed!")
+         self.pendingstatus = SUCCESS
+         return
+      end
+   end   
+   self.inst:ListenForEvent("closecontainer", self.closedCooker)
 
 end)
 
 function MasterChef:OnStop()
    self.inst:RemoveEventCallback("opencontainer", self.openedCooker)
    self.inst:RemoveEventCallback("onreachdestination", self.onReachDest)
+   self.inst:RemoveEventCallback("closecontainer", self.closedCooker)
 end
 
 -- Returned from the actions
@@ -59,6 +76,7 @@ function MasterChef:Visit()
       self.pendingstatus = nil
       self.action = nil
       self.reachedDestination = nil
+      self.currentCooker = nil
       
       -- Do we have a cookpot nearby? 
       local cooker = FindEntity(self.inst, 15, function(thing) return thing.prefab == "cookpot" and not thing:HasTag("burnt") end)

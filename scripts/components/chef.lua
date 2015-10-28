@@ -148,7 +148,55 @@ function Chef:MakeSomethingGood(cooker, onsuccess, onfail)
    local randCombo = math.random(1,numCombos)
    print("Using combo # " .. tostring(randCombo))
    
+   local invItems = {}
+   local haveAllItems = true
+   for prefab,num in pairs(whatImMaking[randCombo].combo.names) do
+       -- Convert meat aliases back to their original. This is annoying.
+      if prefab == "smallmeat_cooked" then
+         prefab = "cookedsmallmeat"
+      elseif prefab == "meat_cooked" then
+         prefab = "coodedmeat"
+      elseif prefab == "monstermeat_cooked" then
+         prefab = "cookedmonstermeat"
+      end  
+      
+      local ing = self.inst.components.inventory:FindItem(function(item) return item.prefab == prefab end)
+      if not ing then
+         print("Can not find " .. prefab .. " in our inventory!")
+         haveAllItems = false
+         break
+      end
+      
+      local numHave = ing.components.stackable and ing.components.stackable:StackSize() or 1
+      
+      -- Do we have enough of this
+      if numHave >= num then
+         for z=1,num do
+            table.insert(invItems,ing)
+         end
+      else
+         print("Recipe requires " .. tostring(num) .. " " .. prefab .. " but we only have " .. tostring(numHave))
+         haveAllItems = false
+         break
+      end
+   end
    
+   if not haveAllItems then
+      print("We don't have all of the items in our inventory!")
+      return
+   end
+   
+   local tdelay = .25
+   local interval = .25
+   for k,v in pairs(invItems) do
+      -- There should be 4 things here. I put the same thing in multiple spots if 
+      -- the combo called for duplicates to make it easier.
+      self.inst:DoTaskInTime(tdelay,function() TransferItemTo(v,self.inst,cooker,false) end)
+      tdelay = tdelay+interval
+   end
+   
+   
+   --[[
    -- Need to trade for ingredients to the cooker. 
    -- TODO: Cooking uses _cooked food as regular. A recipe
    --       will just say "berries", but can take either. Need
@@ -156,6 +204,15 @@ function Chef:MakeSomethingGood(cooker, onsuccess, onfail)
    local tdelay = .25
    local interval = .25
    for prefab,num in pairs(whatImMaking[randCombo].combo.names) do
+      -- Convert meat aliases back to their original. This is annoying.
+      if prefab == "smallmeat_cooked" then
+         prefab = "cookedsmallmeat"
+      elseif prefab == "meat_cooked" then
+         prefab = "coodedmeat"
+      elseif prefab == "monstermeat_cooked" then
+         prefab = "cookedmonstermeat"
+      end
+   
       local ing = self.inst.components.inventory:FindItem(function(item) return item.prefab == prefab end)
       if not ing then
          print("Could not find " .. prefab .. " in inventory!")
@@ -169,6 +226,8 @@ function Chef:MakeSomethingGood(cooker, onsuccess, onfail)
       end
    end
    
+   --]]
+   
    print("The cookpot should have shit in it by now!")
    
    -- Doing this with a slight delay so we can see the stuff in the container for a sec
@@ -177,7 +236,7 @@ function Chef:MakeSomethingGood(cooker, onsuccess, onfail)
    action:AddSuccessAction(function() if math.random() < .4 then self.inst.components.talker:Say("I'm mother fucking Gordon Ramsay") end if onsuccess then onsuccess() end end)
    
    -- Doing this with a slight delay so it's not so BAM IM DONE!
-   self.inst:DoTaskInTime(tdelay*5, function() self.inst.components.locomotor:PushAction(action,true) end)
+   self.inst:DoTaskInTime(tdelay+(2*interval), function() self.inst.components.locomotor:PushAction(action,true) end)
    
    return action
    

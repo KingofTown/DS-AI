@@ -170,7 +170,7 @@ local function CanIBuildThis(player, thingToBuild, numToBuild, recursive)
 end
 
 -- Should only be called after the above call to ensure we can build it.
-local function BuildThis(player, thingToBuild, pos)
+local function OldBuildThis(player, thingToBuild, pos)
 	local recipe = GetRecipe(thingToBuild)
 	-- not a real thing
 	if not recipe then return end
@@ -484,19 +484,6 @@ local function FindValidHome(inst)
 				--return SetupBufferedAction(inst, BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil))
 				local action = BufferedAction(inst,inst,ACTIONS.BUILD,nil,machinePos,"researchlab",nil)
 				inst:PushBufferedAction(action)
-				
-				-- Can we also make a backpack while we are here?
-				if CanIBuildThis(inst,"backpack") then
-					BuildThis(inst,"backpack")
-				end
-			
-			--	inst.components.builder:DoBuild("researchlab",machinePos)
-			--	-- This will push an event to set our home location
-			--	-- If we can, make a firepit too
-			--	if inst.components.builder:CanBuild("firepit") then
-			--		local pitPos = GetPointNearThing(inst,6)
-			--		inst.components.builder:DoBuild("firepit",pitPos)
-			--	end
 			else
 				print("Could not find a place for a science machine")
 			end
@@ -569,8 +556,11 @@ function ArtificalBrain:OnStop()
 	self.inst:RemoveEventCallback("builditem",ListenForBuild)
 	self.inst:RemoveEventCallback("attacked", OnHitFcn)
 	self.inst:RemoveEventCallback("noPathFound", OnPathFinder)
+   self.inst:RemoveEventCallback("actionsuccess", OnActionSuccess)
+   self.inst:RemoveEventCallback("actionfailed", OnActionFailed)
 	self.inst:RemoveTag("DoingLongAction")
 	self.inst:RemoveTag("DoingAction")
+
 end
 
 -- This isn't really used...
@@ -829,14 +819,6 @@ function ArtificalBrain:OnStart()
         }, .25)
     
     self.bt = BT(self.inst, root)
-	
-	self.printDebugInfo = function(self)
-		print("Items on ignore list:")
-		for k,v in pairs(IGNORE_LIST) do 
-			print(k,v)
-		end
-	end
-
 end
 
 return ArtificalBrain

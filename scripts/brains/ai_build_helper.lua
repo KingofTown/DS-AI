@@ -116,7 +116,9 @@ function GenerateBufferedBuildOrder(player, thingToBuild, pos, onSuccess, onFail
 		
 	-- generate a callback fn for successful build
 	local unlockRecipe = function()
-		player.components.builder:UnlockRecipe(thingToBuild)
+	   if not player.components.builder:KnowsRecipe(thingToBuild) then
+		    player.components.builder:UnlockRecipe(thingToBuild)
+		end
 	end
 	
 	if not player.itemsNeeded or #player.itemsNeeded == 0 then
@@ -138,8 +140,8 @@ function GenerateBufferedBuildOrder(player, thingToBuild, pos, onSuccess, onFail
 			-- function otherwise! Can't test here as we might not have all of the
 			-- refined resources yet. 
 			while v.toMakeNum > 0 do 
-
-				local action = BufferedAction(player,nil,ACTIONS.BUILD,nil,pos,v.toMake,nil)
+            -- Pass own position for refined resources
+				local action = BufferedAction(player,nil,ACTIONS.BUILD,nil,Point(player.Transform:GetWorldPosition()),v.toMake,1)
 				if onFail then
 					action:AddFailAction(function() onFail() end)
 				end
@@ -155,7 +157,7 @@ function GenerateBufferedBuildOrder(player, thingToBuild, pos, onSuccess, onFail
 	
 
 	-- Finally, queue the final resource for build
-	local action = BufferedAction(player,player,ACTIONS.BUILD,nil,pos,thingToBuild,nil)
+	local action = BufferedAction(player,player,ACTIONS.BUILD,nil,pos,thingToBuild,1)
 	if onFail then
 		action:AddFailAction(onFail)
 	end

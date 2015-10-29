@@ -58,6 +58,9 @@ local function spawnAI(sim)
 	
 	sim.SetSelfAI = setSelfAI
 	sim.SetSelfNormal = setSelfNormal
+	
+	
+	sim.Crash = function(inst) local a = inst.components.crashGame.yay end
 
 end
 
@@ -124,6 +127,15 @@ local function MakeClickableBrain()
 			GLOBAL.c_give("flint",20)
 			GLOBAL.c_give("goldnugget",20)
 			GLOBAL.c_give("rocks",20)
+			GLOBAL.c_give("charcoal",6)
+			GLOBAL.c_give("berries",10)
+			GLOBAL.c_give("carrot",10)
+			GLOBAL.c_give("acorn_cooked",4)
+			GLOBAL.c_give("monstermeat",4)
+			GLOBAL.c_give("smallmeat",4)
+			GLOBAL.c_give("fish",4)
+			GLOBAL.c_give("green_cap",4)
+			
 		end
 	end
 end
@@ -351,3 +363,13 @@ local function ReallyFull(self)
 end
 
 AddComponentPostInit("inventory", ReallyFull)
+
+-- New components that have OnLoad need to be loaded early!
+local function AddNewComponents(player)
+   player:AddComponent("prioritizer")
+   player:AddComponent("cartographer")
+   player:AddComponent("chef")
+   --player:AddTag("debugPrint")
+end
+
+AddPlayerPostInit(AddNewComponents)

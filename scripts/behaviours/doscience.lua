@@ -48,22 +48,32 @@ function DoScience:PushNextAction()
 		
 		    
       -- Have the buffered action schedule the next one
-		action:AddSuccessAction(function() self:PushNextAction() end)
-		
-		-- If pos is nil, don't push it to the locomotor.
-		if action.pos == nil then
-		 self.inst:PushBufferedAction(action)
-		else
-		 self.inst.components.locomotor:PushAction(action, true)
-		end
+		action:AddSuccessAction(function() self.inst:DoTaskInTime(.2,self:PushNextAction()) end)
 		self.waitingForBuild = true
+		
+		self.inst.components.locomotor:PushAction(action, true)	
+		
+		print("PushNextAction: done")	
 	end
 end
 
+-- This is the order to build things. 
 local BUILD_PRIORITY = {
 		"spear",
 		"backpack",
+		"cookpot",
 }
+
+-- The BUILD_PRIORITY contains the index into the build info table
+-- which stores the important info. Otherwise you cannot control
+-- the table ordering.
+-- Not all builds need build_info populated. This table will just contain
+-- extra info for the build, like position to build it.
+-- example entry would be:
+-- "spear" = {pos=nil, someValue=x, otherInfo=y}
+-- then you would loop over BUILD_PRIORITY and use that
+-- index to get the build_info
+local build_info = { }
 
 function DoScience:Visit()
 
@@ -96,6 +106,9 @@ function DoScience:Visit()
 						if BUILD_PRIORITY[toBuild] == nil then
 							print("Don't know how to build " .. toBuild .. "...adding to build table")
 							table.insert(BUILD_PRIORITY,1,toBuild)
+							build_info[toBuild] = {pos=self.buildTable.pos}
+							--local build_info = {pos=self.buildTable.pos, onsuccess=self.buildTable.onsuccess, onfail=self.buildTable.onfail}
+							--self.inst.components.prioritizer:AddToBuildList(toBuild,build_info)
 						end
 						if self.buildTable.onfail then 
 							self.buildTable.onfail()
@@ -142,6 +155,9 @@ function DoScience:Visit()
 			-- Looking for things we can prototype
 			local recipe = GetRecipe(v)
 			
+			-- If not nil, will contain useful info like 'where' to build this now
+			local buildinfo = build_info[v]
+			
 			-- This node only cares about things to prototype. If we know the recipe, 
 			-- ignore it. 
 			if not self.inst.components.builder:KnowsRecipe(v) then
@@ -149,8 +165,7 @@ function DoScience:Visit()
 				-- Will check our inventory for all items needed to build this
 				if CanPlayerBuildThis(self.inst,v) and CanPrototypeRecipe(recipe.level,tech_level) then
 					-- Will push the buffered event to build this thing
-					-- TODO: Add a position for non inventory items
-					local pos = Vector3(self.inst.Transform:GetWorldPosition())
+					local pos = buildinfo and buildinfo.pos or self.inst.brain:GetPointNearThing(self.inst,7)--Vector3(self.inst.Transform:GetWorldPosition())
 					self.bufferedBuildList = GenerateBufferedBuildOrder(self.inst,v,pos,self.onSuccess, self.onFail)
 					-- We apparnetly know how to make this thing. Let's try!
 					if self.bufferedBuildList ~= nil then
@@ -170,10 +185,9 @@ function DoScience:Visit()
 		
     elseif self.status == RUNNING then
 		if self.waitingForBuild then
+		
 			-- If this is set, the buffered list is done (either by error or successfully). 
 			-- Nothing left to do.
-			
-			
 			if self.buildStatus then
 				print("Build status has returned : " .. tostring(self.buildStatus))
 				self.status = self.buildStatus

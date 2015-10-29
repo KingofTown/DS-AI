@@ -31,10 +31,11 @@ function ManageSanity:Visit()
       local currentSanity = self.inst.components.sanity:GetPercent()
     
       -- Don't bother picking up flowers until our sanity starts dropping
-      if currentSanity < targetSanity*.95 and self.inst.brain:OnIgnoreList("petals") then
-         self.inst.brain:RemoveFromIgnoreList("petals")
-      elseif currentSanity >= math.max(1,targetSanity*1.05) and not self.inst.brain:OnIgnoreList("petals") then
-         self.inst.brain:AddToIgnoreList("petals")
+      if currentSanity < targetSanity*.95 and self.inst.components.prioritizer:OnIgnoreList("petals") then
+         self.inst.components.prioritizer:RemoveFromIgnoreList("petals")
+      elseif currentSanity >= math.max(1,targetSanity*1.05) and not self.inst.components.prioritizer:OnIgnoreList("petals") then
+         --self.inst.brain:AddToIgnoreList("petals")
+         self.inst.components.prioritizer:AddToIgnoreList("petals")
       end
       
       -- Until we get to below some value...don't do anything.

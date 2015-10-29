@@ -177,18 +177,41 @@ end
 --------------------------------------------------
 
 function ShouldRunAway(guy)
-
+   
+   -- Don't run from anything in our inventory (i.e. killer bees in our inventory)
+   if guy.components.inventoryitem and guy.components.inventoryitem.owner then
+      return false
+   end
+   
 	-- Wilson apparently gets scared by his own shadow
 	-- Also, don't get scared of chester too...
 	if guy:HasTag("player") or guy:HasTag("companion") then 
 		return false 
 	end
 	
-	-- Angry worker bees don't have any special tag...so check to see if it's spring
-	-- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
-	if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
-		return true
+   -- Angry worker bees don't have any special tag...so check to see if it's spring
+   -- Also make sure .IsSpring is not nil (if no RoG, this will not be defined)
+   if guy:HasTag("worker") and GetSeasonManager() and GetSeasonManager().IsSpring ~= nil and GetSeasonManager():IsSpring() then
+      return true
+   end
+     
+   	
+	-- Run away from things that are on fire and don't try to harvest things in fire.
+	-- Then again, if a firehound ends up being on fire...we won't run away from it. lol...
+	-- TODO: Fix this at some point. Leaving here becuase I don't see that happening ever.
+	if guy:HasTag("fire") then
+	  -- Any prefab that has the name 'fire' or 'torch' in it is probably safe...
+	  local i = string.find(guy.prefab,"fire")
+	  local j = string.find(guy.prefab,"torch")
+	  if i or j then
+	     return false
+	  end
+ 
+	  print("Ahh! " .. guy.prefab .. " is on fire! KEEP AWAY!")
+	  return true
 	end
+	
+
 	return guy:HasTag("WORM_DANGER") or guy:HasTag("guard") or guy:HasTag("hostile") or 
 		guy:HasTag("scarytoprey") or guy:HasTag("frog") or guy:HasTag("mosquito") or guy:HasTag("merm")
 

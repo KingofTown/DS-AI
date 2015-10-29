@@ -166,7 +166,7 @@ function FindThingToBurn:Visit()
          -- Waiting for the torch to appear.
          if not self.waitingForBuild then
             -- Don't craft one unless we can hold one
-            if self.inst.components.inventory:IsTotallyFull() then
+            if not self.inst.components.inventory:IsTotallyFull() then
                self.waitingForBuild = true
                self.inst.brain:SetSomethingToBuild("torch",nil,function() self.waitingForBuild = false end, function() self.waitingForBuild = false end)
             end

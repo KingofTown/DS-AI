@@ -369,7 +369,7 @@ local function AddNewComponents(player)
    player:AddComponent("prioritizer")
    player:AddComponent("cartographer")
    player:AddComponent("chef")
-   player:AddTag("debugPrint")
+   --player:AddTag("debugPrint")
 end
 
 AddPlayerPostInit(AddNewComponents)

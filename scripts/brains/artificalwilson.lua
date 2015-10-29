@@ -640,6 +640,8 @@ function ArtificalBrain:OnStart()
 
 			-- Collect stuff
 			SelectorNode{
+			   -- Should maybe stick around and wait for this thing to finish burning...he just
+			   -- kind of runs away...
             IfNode( function() return not IsBusy(self.inst) end, "notBusy_goBurn",
                FindThingToBurn(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",

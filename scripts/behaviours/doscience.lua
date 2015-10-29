@@ -48,19 +48,12 @@ function DoScience:PushNextAction()
 		
 		    
       -- Have the buffered action schedule the next one
-		action:AddSuccessAction(function() self:PushNextAction() end)
-		
-		self.inst.components.locomotor:PushAction(action, true)
-		
-		-- If pos is nil, don't push it to the locomotor.
-		--if action.pos == nil then
-		-- print("doscience: pos is nil")
-		-- self.inst:PushBufferedAction(action)
-		--else
-		-- print("doscience: using locomotor to go to pos")
-		-- self.inst.components.locomotor:PushAction(action, true)
-		--end
+		action:AddSuccessAction(function() self.inst:DoTaskInTime(.2,self:PushNextAction()) end)
 		self.waitingForBuild = true
+		
+		self.inst.components.locomotor:PushAction(action, true)	
+		
+		print("PushNextAction: done")	
 	end
 end
 
@@ -172,7 +165,7 @@ function DoScience:Visit()
 				-- Will check our inventory for all items needed to build this
 				if CanPlayerBuildThis(self.inst,v) and CanPrototypeRecipe(recipe.level,tech_level) then
 					-- Will push the buffered event to build this thing
-					local pos = buildinfo and buildinfo.pos or Vector3(self.inst.Transform:GetWorldPosition())
+					local pos = buildinfo and buildinfo.pos or self.inst.brain:GetPointNearThing(self.inst,7)--Vector3(self.inst.Transform:GetWorldPosition())
 					self.bufferedBuildList = GenerateBufferedBuildOrder(self.inst,v,pos,self.onSuccess, self.onFail)
 					-- We apparnetly know how to make this thing. Let's try!
 					if self.bufferedBuildList ~= nil then

@@ -61,6 +61,7 @@ end
 local BUILD_PRIORITY = {
 		"spear",
 		"backpack",
+		"firepit",
 		"cookpot",
 }
 

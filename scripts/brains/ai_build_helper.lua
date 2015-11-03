@@ -38,14 +38,16 @@ function CanPlayerBuildThis(player, thingToBuild, numToBuild, recursive)
 	
 	-- Not a real thing so we can't possibly build this
 	if not recipe then 
-		print(thingToBuild .. " is not buildable :(")
+		print(thingToBuild .. " is not craftable")
 		return false 
 	end
+	
+	print("Checking to see if we can build " .. thingToBuild)
 	
 	-- Quick check, do we know how to build this thing?
 	if not player.components.builder:KnowsRecipe(thingToBuild) then
 		-- Check if we can prototype it 
-		print("We don't know how to build " .. thingToBuild)
+		print("We don't know recipe for " .. thingToBuild)
 		local tech_level = player.components.builder.accessible_tech_trees
 		if not CanPrototypeRecipe(recipe.level, tech_level) then
 			print("...nor can we prototype it")
@@ -81,7 +83,7 @@ function CanPlayerBuildThis(player, thingToBuild, numToBuild, recursive)
 			-- Recursive check...can we make this ingredient
 			local canCraft = CanPlayerBuildThis(player,iv.type,needed,recursive+1)
 			if not canCraft then
-				print("Need " .. tostring(needed) .. " " .. iv.type .. "s but can't make them")
+				print("Need " .. tostring(needed) .. " " .. iv.type .. "s but can't craft them!")
 				return false
 			else
 				-- We know the recipe to build this and have the goods. Add it to the list

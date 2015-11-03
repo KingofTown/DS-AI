@@ -6,6 +6,11 @@ local GetWorld = GLOBAL.GetWorld
 
 local ArtificalWilsonEnabled = false
 
+-- Stole this from flingomatic range check mod...
+PrefabFiles = 
+{
+   "range"
+}
 
 AddBrainPostInit("artificalwilson",ArtificalWilson)
 
@@ -219,15 +224,15 @@ local function RoGOnUpdate(self,dt)
                     --print("HAS PATH SEARCH " .. tostring(pathstatus))
                     if pathstatus ~= STATUS_CALCULATING then
                         --Print(VERBOSITY.DEBUG, "PATH CALCULATION complete", pathstatus)
-                        print("PATH CALC COMPLETE " .. tostring(pathstatus))
-                        print("STATUS_FOUNDPATH = " .. tostring(STATUS_FOUNDPATH))
+                        if self.inst:HasTag("player") then print("PATH CALC COMPLETE " .. tostring(pathstatus)) end
+                        if self.inst:HasTag("player") then print("STATUS_FOUNDPATH = " .. tostring(STATUS_FOUNDPATH)) end
                         if pathstatus == STATUS_FOUNDPATH then
                             --Print(VERBOSITY.DEBUG, "PATH FOUND")
-                            print("PATH FOUND")
+                            if self.inst:HasTag("player") then print("PATH FOUND") end
                             local foundpath = GetWorld().Pathfinder:GetSearchResult(self.path.handle)
                             if foundpath then
                                 --Print(VERBOSITY.DEBUG, string.format("PATH %d steps ", #foundpath.steps))
-                                print(string.format("PATH %d steps ", #foundpath.steps))
+                                if self.inst:HasTag("player") then print(string.format("PATH %d steps ", #foundpath.steps)) end
     
                                 if #foundpath.steps > 2 then
                                     self.path.steps = foundpath.steps
@@ -243,7 +248,7 @@ local function RoGOnUpdate(self,dt)
                                     self.path.currentstep = nil
                                 end
                             else
-                                print("EMPTY PATH")
+                                if self.inst:HasTag("player") then print("EMPTY PATH") end
                                 GetWorld().Pathfinder:KillSearch(self.path.handle)
                                 self.path.handle = nil
                                 self.inst:PushEvent("noPathFound", {inst=self.inst, target=self.dest.inst, pos=Point(destpos_x, destpos_y, destpos_z)})
@@ -251,9 +256,9 @@ local function RoGOnUpdate(self,dt)
                             end
                         else
                             if pathstatus == nil then
-                                print(string.format("LOST PATH SEARCH %u. Maybe it timed out?", self.path.handle))
+                                if self.inst:HasTag("player") then print(string.format("LOST PATH SEARCH %u. Maybe it timed out?", self.path.handle)) end
                             else
-                                print("NO PATH")
+                                if self.inst:HasTag("player") then print("NO PATH") end
                                 GetWorld().Pathfinder:KillSearch(self.path.handle)
                                 self.path.handle = nil
                                 self.inst:PushEvent("noPathFound", {inst=self.inst, target=self.dest.inst, pos=Point(destpos_x, destpos_y, destpos_z)})

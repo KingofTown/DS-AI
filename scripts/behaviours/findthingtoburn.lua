@@ -42,19 +42,18 @@ end
 -- Returns a tree that is safe to set on fire. 
 -- And by safe...well, that is relative.
 function FindThingToBurn:GetSafeTreeToBurn()
-   -- I would restrict this to not large trees...but there's no way to tell.
-   -- I guess I can see how much work is remaining and ignore ones that take
-   -- the 'large tree' amount of work...
+
    local tree = FindEntity(self.inst, self.distance(), function(item) 
    
       -- Not a tree
       if not item:HasTag("tree") then return false end
       
-      -- Kind of a tree...
+      -- Half of a tree...
       if item:HasTag("stump") then return false end
       
       -- Too big. We might still burn down a tall tree if, say, we started chopping it then
       -- stop for some reason...
+      -- Do I want this 'no large tree' restriction? 
       local workable = item.components.workable
       if workable and workable.workleft > TUNING.EVERGREEN_CHOPS_NORMAL then
          return false 
@@ -80,7 +79,8 @@ function FindThingToBurn:GetSafeTreeToBurn()
       
       local prop_range = item.components.propagator and item.components.propagator.propagaterange or 0
       
-      -- Find all burnable entities within this range
+      -- Find a burnable entities within this range
+      -- TODO: Make this a recursive check (with a limit of course)
       local burnable = nil
       if prop_range > 0 then
          burnable = FindEntity(item, prop_range, 
@@ -220,7 +220,8 @@ function FindThingToBurn:Visit()
          else
             if equipped and equipped.components.lighter then
                --self.inst.components.inventory:Unequip(EQUIPSLOTS.HANDS)
-               self.inst:PushBufferedAction(BufferedAction(self.inst,self.inst,ACTIONS.UNEQUIP,equipped))
+               --self.inst:PushBufferedAction(BufferedAction(self.inst,self.inst,ACTIONS.UNEQUIP,equipped))
+              self.inst.components.inventory:GiveItem(equipped)
             end
          end
       end

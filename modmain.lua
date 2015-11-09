@@ -6,6 +6,13 @@ local GetWorld = GLOBAL.GetWorld
 
 local ArtificalWilsonEnabled = false
 
+Assets = {
+    Asset("IMAGE", "images/map_circle.tex"),
+    Asset("ATLAS", "images/map_circle.xml"),
+}
+
+AddMinimapAtlas("images/map_circle.xml")
+
 -- Stole this from flingomatic range check mod...
 PrefabFiles = 
 {

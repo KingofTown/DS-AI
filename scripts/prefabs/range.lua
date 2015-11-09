@@ -23,6 +23,9 @@ local function fn(Sim)
    inst:AddTag("fx")
    inst:AddTag("range_indicator")
     
+    local minimap = inst.entity:AddMiniMapEntity()
+    minimap:SetIcon("map_circle.tex")
+    
    return inst
 end
 

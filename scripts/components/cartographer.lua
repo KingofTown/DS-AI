@@ -1,27 +1,22 @@
 local Cartographer = Class(function(self, inst)
-    self.inst = inst
-	--self.inst:StartUpdatingComponent(self) -- we'll schedule ourselves
+   self.inst = inst
+
 	self.utilityMap = {}
-	self.map = {}
-	self.updateRate = .5 -- in seconds
-	self.task = nil
+
+
 	
-	-- how far to graph based on current position
-	self.mapOffset = 2
-	self.resolution = 5
-	
-	self.circleRadius = 10
-	self.circleMap = {}
+   -- Our mapping circles	
+   self.circleMap = {}
+	self.circleRadius = 15
 	
 	-- The number of points to test around each
-   -- circle.
+   -- circle. Used to generate the 'offset table' below.
    self.numPoints = 16
 	
 	-- Contains self.numPoints equadistant points
 	-- around a unit circle.
 	self.offsetTable = {}
 	
-	-- Genearte the offsetTable above
 	local slices = 2*math.pi / self.numPoints
 	for i=1,self.numPoints do
 	  local angle = slices*i
@@ -31,9 +26,12 @@ local Cartographer = Class(function(self, inst)
 	  table.insert(self.offsetTable,entry)
 	end
 	
-	
+	-- This is the index of the last circle we stood in
 	self.lastCircle = nil
 	
+	-- Updates are scheduled every updateRate seconds
+	self.updateRate = .5 -- in seconds
+	self.task = nil -- This holds the current scheduled update
 	self:StartUpdate()
 end)
 
@@ -41,50 +39,42 @@ end)
 function Cartographer:OnSave()
 	-- Build the save data map
 	local data = {}
-	-- Add the stuff to save
-	data.map = self.map
-	data.resolution = self.resolution
+
 	data.utilityMap = self.utilityMap
 	
 	-- Before we can save this circleMap, we have
-	-- to get rid of the actual circles
+	-- to get rid of the actual circles. We can't
+	-- save things with a Transform. We'll just 
+	-- redraw them on load
 	for k,v in pairs(self.circleMap) do
 	  v.circle = nil
 	end
 	data.circleMap = self.circleMap
+	
 	-- Return the map
 	return data
 end
 
 -- Load our utility map
 function Cartographer:OnLoad(data, newents)
-   -- If the saved resolution is different than
-   -- the default, it means I've changed it. Clear the
-   -- saved map.
-   if data and data.resolution then
-      if self.resolution ~= data.resolution then
-         self.map = {}
-      else
-         self.map = data and data.map or {}
-      end
-   end
    
 	if data and data.utilityMap then
 		self.utilityMap = data.utilityMap
 	end
 	
+	-- Redraw our happy little circles
 	if data and data.circleMap then
 	  -- Draw the circles again
 	  self.circleMap = data.circleMap
 	  for k,v in pairs(data.circleMap) do
 	     if v.pos then
 	        v.circle = self:DropCircle(v.pos)
-	        
 	     end
 	  end
 	end
 end
 
+-- Schedules itself to run periodically rather than every game tick
 function Cartographer:StartUpdate()
    if not self.task then
       self.task = self.inst:DoPeriodicTask(self.updateRate, function() self:OnUpdate(self.updateRate) end)
@@ -92,7 +82,7 @@ function Cartographer:StartUpdate()
 end
 
 
--- Draws a circle at our current point
+-- Draws a circle at either the point specified or our current pos otherwise
 function Cartographer:DropCircle(circlePos)
    local pos = circlePos or Point(self.inst.Transform:GetWorldPosition())
    local range = SpawnPrefab("range_indicator")
@@ -105,6 +95,7 @@ function Cartographer:DropCircle(circlePos)
    return range
 end
 
+-- Loops through the map to translate a physical circle to the index
 function Cartographer:GetIndexFromCircle(circle)
    for k,v in pairs(self.circleMap) do
       if v.circle == circle then
@@ -113,6 +104,8 @@ function Cartographer:GetIndexFromCircle(circle)
    end
 end
 
+-- Not really used. Seems excessive to do FindValidPositionByFan when
+-- I only care about the exact pos I'm looking at. Leaving here for now...
 function Cartographer:CheckForWater(pos)
    local test = function(offset)
       local testPoint = pos + offset
@@ -137,14 +130,15 @@ end
 function Cartographer:CanPlaceCircleAtPoint(p, sTiles)
    if not p and not p.x and not p.y and not p.z then return false end
    
-   -- Don't want circles at exactly 2*rad..so subtracting a tiny bit
+   -- Really want all circles < 2*radius, but this will give me <= 2*radius...so subtracting a tiny amount. Kind of 
+   -- silly...but it works.
    local closestCircles = TheSim:FindEntities(p.x,p.y,p.z, 2*self.circleRadius-.1, {"range_indicator"}, {"exit_circle"})
    if #closestCircles ~= 0 then
       return false
    end
    
+   -- Check each offset angle for water.
    local ground = GetWorld()
-   
    for k=1,self.numPoints do
       local offsetPos = {}
       offsetPos.x = p.x + self.circleRadius*self.offsetTable[k].x
@@ -283,7 +277,7 @@ function Cartographer:OnUpdate(dt)
    
    -- Create a table to store our linked circles and exit nodes
    info.linkedCircles = {}
-   info.exitNodes = {}
+   info.exitPoints = {}
    
 
    -- Find the majority of the tiles around this point and mark this as
@@ -365,11 +359,11 @@ function Cartographer:FindExitNodesFrom(index, exitPoints)
    -- Now, loop through all of these circles' exit nodes and remove
    -- them if they overlap with this circle
    for k,v in pairs(potentialCircles) do
-      for i,j in pairs(v.exitNodes) do
+      for i,j in pairs(v.exitPoints) do
          local dsq = circleInfo.circle:GetDistanceSqToPoint(j)
          if math.sqrt(dsq) < 2*self.circleRadius then
             print("Exit node: " .. tostring(i) .. " of circle " .. tostring(k) .. " overlaps with new circle. Removing.")
-            self.circleMap[k].exitNodes[i] = nil
+            self.circleMap[k].exitPoints[i] = nil
             
             -- For testing...remove the green exit circle that overlaps
             local exitCircles = TheSim:FindEntities(j.x,j.y,j.z, 2*self.circleRadius, {"exit_circle"})
@@ -382,28 +376,21 @@ function Cartographer:FindExitNodesFrom(index, exitPoints)
    end
    
    -- Loop through all exitPoints and determine if it is a valid exit.
-   -- TODO: maybe combine this with the above loop to save some cycles? don't
-   --       care right now.
    for k,v in pairs(exitPoints) do
-      -- 1) Can we draw a circle here. If so, add it as an exit.
-      --    This function should check for overlapping circles
-      --    and water.
-      --print("Checking for exit at " .. tostring(v))
-      -- TEST THINGY
-      --local testThingy = SpawnPrefab("teleportato_ring")
-      --testThingy.Physics:Teleport(v:Get())
-      -------
+
       if self:CanPlaceCircleAtPoint(v) then
          --print("Found exit at " .. tostring(v))
+         table.insert(circleInfo.exitPoints, v)
+         
+         ----- Dropping physical circle for debugging -----
          local exitCircle = self:DropCircle(v)
          exitCircle:AddTag("exit_circle")
          exitCircle.AnimState:SetMultColour(.25,5,.5,.75)
-         table.insert(circleInfo.exitNodes, v)
+         --------------------------------------------------
       end
-      
    end
-   
 end
+
 
 
 return Cartographer

@@ -25,7 +25,7 @@ require "brains/ai_build_helper"
 require "brains/ai_combat_helper"
 require "brains/ai_inventory_helper"
 
-local MIN_SEARCH_DISTANCE = 15
+local MIN_SEARCH_DISTANCE = 10
 local MAX_SEARCH_DISTANCE = 100
 local SEARCH_SIZE_STEP = 10
 local RUN_AWAY_SEE_DIST = 5
@@ -613,6 +613,7 @@ function ArtificalBrain:OnStart()
 	self.inst.components.prioritizer:AddToIgnoreList("ash")
 	self.inst.components.prioritizer:AddToIgnoreList("ice") -- Will need it eventually...just not soon
 	self.inst.components.prioritizer:AddToIgnoreList("cave_entrance") --We're not going down...quit letting the bats out idiot!
+	self.inst.components.prioritizer:AddToIgnoreList("livinglog") -- Won't need these for a while
 	
 	-- If we don't have a home, find a science machine in the world and make that our home
 	if not HasValidHome(self.inst) then
@@ -640,10 +641,6 @@ function ArtificalBrain:OnStart()
 
 			-- Collect stuff
 			SelectorNode{
-			   -- Should maybe stick around and wait for this thing to finish burning...he just
-			   -- kind of runs away...
-            IfNode( function() return not IsBusy(self.inst) end, "notBusy_goBurn",
-               FindThingToBurn(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goPickup",
 					FindResourceOnGround(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goHarvest",
@@ -652,6 +649,10 @@ function ArtificalBrain:OnStart()
 					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.CHOP)),
 				IfNode( function() return not IsBusy(self.inst) end, "notBusy_goMine",
 					FindTreeOrRock(self.inst,  function() return self:GetCurrentSearchDistance() end, ACTIONS.MINE)),
+		      -- Should maybe stick around and wait for this thing to finish burning...he just
+            -- kind of runs away...
+            IfNode( function() return not IsBusy(self.inst) end, "notBusy_goBurn",
+               FindThingToBurn(self.inst, function() return self:GetCurrentSearchDistance() end)),
 				
 					-- Finally, if none of those succeed, increase the search distance for
 					-- the next loop.

@@ -2,7 +2,7 @@
 name = "Artifical Wilson"
 description = "Tired of playing the game? Let the game play for you!"
 author = "KingofTown"
-version = "0.1"
+version = "0.3"
 forumthread = "None"
 icon_atlas = "modicon.xml"
 icon = "modicon.tex"

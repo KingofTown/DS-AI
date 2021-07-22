@@ -118,6 +118,11 @@ local function MakeClickableBrain()
 	end
 	
 	status.brain.OnMouseButton = function(self,button,down,x,y)	
+	    if button == 1001 and down == true then
+			print("Spawning a wilson")
+			GLOBAL.GetClock():SpawnWilson()
+			return
+		end
 		if down == true then
 			if ArtificalWilsonEnabled then
 				self.owner.brainPulse:Cancel()
@@ -379,7 +384,7 @@ AddComponentPostInit("inventory", ReallyFull)
 -- New components that have OnLoad need to be loaded early!
 local function AddNewComponents(player)
    player:AddComponent("prioritizer")
-   player:AddComponent("cartographer")
+   --player:AddComponent("cartographer")
    player:AddComponent("chef")
    --player:AddTag("debugPrint")
 end

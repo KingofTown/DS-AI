@@ -203,7 +203,8 @@ function Cartographer:OnUpdate(dt)
       local distToCircleSq = self.inst:GetDistanceSqToInst(closestCircle)
       local index = self:GetIndexFromCircle(closestCircle)
       if not index then
-         print("Uhh, there is a circle not in our map?")
+         --print("Uhh, there is a circle not in our map?")
+         
       elseif distToCircleSq <= self.circleRadius*self.circleRadius then
          -- We are actually standing inside of a circle right now. Make this our
          -- 'last circle'. 

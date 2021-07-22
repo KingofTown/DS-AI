@@ -135,8 +135,8 @@ function FindThingToBurn:Visit()
             return
          end
          
-         -- Otherwise, see if we have a half a stack of it (20) then we don't need more.
-         local haveEnough,num = self.inst.components.inventory:Has("charcoal",20)
+         -- Otherwise, see if we have a half a stack of it (10) then we don't need more.
+         local haveEnough,num = self.inst.components.inventory:Has("charcoal",10)
          if haveEnough then
             self.status = FAILED
             return

@@ -58,14 +58,6 @@ function MaintainLightSource:Visit()
 			end
 		end
 		
-		-- Nothing nearby! Fix this asap.
-		if not source then
-			print("No light nearby!!!")
-			-- Shit...better find one.
-			self.status = RUNNING
-			return
-		end
-		
 		if source then
 			-- Get the safety distance according to the lightsource
 			-- Only run towards it if the current light value where I'm standing is 0
@@ -127,6 +119,14 @@ function MaintainLightSource:Visit()
 		if firepit then
 			print("No lightsource nearby...but there's an unlit firepit!")
 			self.currentLightSource = firepit
+			self.status = RUNNING
+			return
+		end
+
+		-- Nothing nearby! Fix this asap.
+		if not source then
+			print("No light nearby!!!")
+			-- Shit...better find one.
 			self.status = RUNNING
 			return
 		end
@@ -286,24 +286,33 @@ function MaintainLightSource:Visit()
 			-- There was no light source, or we are out of fuel. Time to panic!
 		
 		else
-			-- There was nothing nearby. We need to make one!
-			-- Can we make a campfire?
-			if self.inst.components.builder:CanBuild("campfire") then
+			local makeFire = nil
+			-- Only make a firepit next to a science machine
+			if self.inst.components.builder:CanBuild("firepit") then
+				local scienceMachine = FindEntity(self.inst, 3, function(item) return item.prefab and item.prefab == "researchlab" end)
+				if scienceMachine then
+					makeFire = "firepit"
+				end
+			elseif self.inst.components.builder:CanBuild("campfire") then
+				makeFire = "campfire"
+			end
+
+			if makeFire ~= nil then
 				-- Don't build one too close to burnable things. 
 				-- TODO: This should be a while loop until we find a valid spot
 				--local burnable = GetClosestInstWithTag("burnable",self.inst,3)
 				-- GetClosestInstWithTag returns crap in our inventory. That's useless.
 				local burnable = FindEntity(self.inst,3,function(thing) return thing ~= self.inst 
-				                                            and not self.inst.components.inventory:FindItem(
-				                                                function(invItem) return thing == invItem end)
-				                                         end, {"burnable"})
+															and not self.inst.components.inventory:FindItem(
+																function(invItem) return thing == invItem end)
+															end, {"burnable"})
 				local pos = nil
 				if burnable then
 					print("Don't want to build campfire too close to " .. burnable.prefab)
 					pos = self.inst.brain:GetPointNearThing(burnable,4)
 				end
 
-				local action = BufferedAction(self.inst,nil,ACTIONS.BUILD,nil,pos,"campfire",nil,1)
+				local action = BufferedAction(self.inst,nil,ACTIONS.BUILD,nil,pos,makeFire,nil,1)
 				-- Track this build action!
 				action:AddFailAction(function() self:OnActionFail() end)
 				action:AddSuccessAction(function() self:OnActionSucceed() end)
@@ -313,6 +322,7 @@ function MaintainLightSource:Visit()
 				self.inst.components.locomotor:PushAction(action, true);
 				self.status = RUNNING
 				return
+			
 			end
 			
 			-- There's no light and we can't make a campfire. How about a torch?

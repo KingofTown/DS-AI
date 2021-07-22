@@ -3,6 +3,10 @@ local Chef = Class(function(self, inst)
    self.healthRecs = {}
    self.hungerRecs = {}
    self.sanityRecs = {}
+
+   self.neverMake = {"wetgoop", "fishtacos", "unagi", 
+                     "jammypreserves", "kabobs", "stuffedeggplant", 
+                     "ratatouille", "monsterlasagna", "powcake"}
    
    -- Populate the above tables
    self:GenerateBestRecipes()
@@ -233,7 +237,7 @@ function Chef:MakeSomethingGood(cooker, onsuccess, onfail)
    -- Doing this with a slight delay so we can see the stuff in the container for a sec
    local action = BufferedAction(self.inst,cooker,ACTIONS.COOK)
    action:AddFailAction(function() if onfail then onfail() end end)
-   action:AddSuccessAction(function() if math.random() < .4 then self.inst.components.talker:Say("I'm mother fucking Gordon Ramsay") end if onsuccess then onsuccess() end end)
+   action:AddSuccessAction(function() if math.random() < .1 then self.inst.components.talker:Say("I'm mother fucking Gordon Ramsay") end if onsuccess then onsuccess() end end)
    
    -- Doing this with a slight delay so it's not so BAM IM DONE!
    self.inst:DoTaskInTime(tdelay+(2*interval), function() self.inst.components.locomotor:PushAction(action,true) end)
@@ -356,6 +360,15 @@ function Chef:WhatCanIMake()
       table.insert(combo_ingredients,t)
    end
    
+   local function ignore(value)
+      for k, v in ipairs(self.neverMake) do
+         if value == v then
+            return true
+         end
+      end
+      return false
+   end
+
    -- Now, try all recipes with our combos
    local candidates = {}
    for i,j in pairs(combo_ingredients) do
@@ -363,7 +376,7 @@ function Chef:WhatCanIMake()
       for k,v in pairs(cooking.recipes.cookpot) do
       
          -- Don't test for wetgoop
-         if v.name ~= "wetgoop" then
+         if not ignore(v.name) then
          
             -- TODO: Need to sort this by priority. It might say we can 
             --       make X with the given combo, but it will really make
